@@ -1,0 +1,12 @@
+model:
+  kwargs:
+    max_fit_calls: 5000
+    max_time: 30
+    complexity_penalty: 0.001
+    max_complexity: 40
+    sample_size: 0
+    verbose: false
+data:
+  max_train_rows: 1000
+runtime:
+  max_fit_seconds: 45

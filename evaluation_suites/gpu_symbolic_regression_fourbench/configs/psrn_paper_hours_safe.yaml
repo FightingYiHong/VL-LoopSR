@@ -1,0 +1,28 @@
+model:
+  operators: ['Add', 'Mul', 'Sub', 'Div', 'Identity', 'Sin', 'Cos', 'Exp', 'Log']
+  n_symbol_layers: 2
+  n_inputs: 5
+  n_sample_variables: 3
+  use_const: true
+  use_dr_mask: true
+  token_generator: GP
+  device: cuda
+fit:
+  time_limit: 3600
+  n_down_sample: 300
+  eta: 0.99
+  use_threshold: false
+  threshold: 1.0e-10
+  prun_const: true
+  prun_ndigit: 6
+  real_time_display: false
+  real_time_display_freq: 1
+  real_time_display_ntop: 10
+  add_bias: true
+  together: false
+  top_k: 30
+  use_replace_expo: false
+  use_strict_pareto: true
+  use_extra_const: false
+runtime:
+  max_train_rows: 5000

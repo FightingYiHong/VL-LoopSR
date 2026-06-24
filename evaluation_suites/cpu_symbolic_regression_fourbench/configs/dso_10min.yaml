@@ -1,0 +1,45 @@
+dso:
+  task:
+    function_set: ['add', 'sub', 'mul', 'div', 'sin', 'cos', 'exp', 'log']
+    protected: true
+    threshold: 1.0e-7
+  training:
+    n_samples: 5000
+    batch_size: 600
+    epsilon: 0.06
+    n_cores_batch: 1
+    verbose: false
+    early_stopping: true
+  policy:
+    max_length: 31
+    num_layers: 1
+    num_units: 80
+  prior:
+    length:
+      min_: 2
+      max_: 31
+      "on": true
+    inverse:
+      "on": true
+    trig:
+      "on": true
+    no_inputs:
+      "on": true
+    uniform_arity:
+      "on": true
+    soft_length:
+      loc: 11
+      scale: 5
+      "on": true
+  logging:
+    save_all_iterations: false
+    save_summary: false
+    save_positional_entropy: false
+    save_pareto_front: false
+    save_cache: false
+    hof: 40
+  gp_meld:
+    run_gp_meld: false
+runtime:
+  max_train_rows: 1500
+  max_fit_seconds: 600

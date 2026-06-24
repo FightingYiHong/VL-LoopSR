@@ -1,0 +1,124 @@
+benchmarks:
+  - srbench
+  - sldbench
+  - llmsrbench
+  - srsd
+
+implemented_methods:
+  gplearn:
+    cpu: true
+    conda_env: srbench-gplearn
+    launcher_method: gplearn
+    default_config: srsd-benchmark/external/gplearn/configs/cpu_fast.yaml
+    default_benchmarks: all
+    status: implemented
+    notes: sklearn-style genetic programming baseline; fast enough for all four benchmarks.
+
+  pyoperon:
+    cpu: true
+    conda_env: srbench-gplearn
+    launcher_method: pyoperon
+    default_config: srsd-benchmark/external/pyoperon/configs/cpu_fast.yaml
+    default_benchmarks: all
+    status: implemented
+    notes: C++ genetic programming backend with Python sklearn wrapper; strongest current CPU baseline by several pass-rate views.
+
+  deap:
+    cpu: true
+    conda_env: srbench-gplearn
+    launcher_method: deap
+    default_config: srsd-benchmark/external/deap/configs/cpu_practical.yaml
+    default_benchmarks: all
+    status: implemented
+    notes: pure Python GP adapter built in scripts/run_cpu_baseline_benchmarks.py; useful as a transparent baseline.
+
+  itea:
+    cpu: true
+    conda_env: srbench-gplearn
+    launcher_method: itea
+    default_config: srsd-benchmark/external/itea/configs/cpu_practical.yaml
+    default_benchmarks: all
+    status: implemented
+    notes: practical config caps rows and fit time; SRBench can still be slow.
+
+  aifeynman:
+    cpu: true
+    conda_env: AIFey
+    launcher_method: aifeynman
+    default_config: srsd-benchmark/external/ai_feynman2/configs/cpu_practical.yaml
+    default_benchmarks: sldbench,llmsrbench,srsd
+    status: implemented
+    notes: CPU forced through CUDA_VISIBLE_DEVICES=""; slow and low pass rate on LLMSRBench/SRSD in current runs.
+
+  pysr:
+    cpu: true
+    conda_env: srbench-pysr
+    launcher_method: pysr
+    default_config: srsd-benchmark/external/pysr/configs/cpu_fast.yaml
+    default_benchmarks: all
+    status: blocked
+    blocker: Julia registry TLS issue during package bootstrap.
+    notes: keep adapter; rerun after Julia package registry/network issue is fixed.
+
+  ffx:
+    cpu: true
+    conda_env: srbench-extra
+    launcher_method: ffx
+    default_config: evaluation_suites/cpu_symbolic_regression_fourbench/configs/ffx_fast.yaml
+    default_benchmarks: all
+    status: implemented
+    notes: Fast Function Extraction baseline installed in an isolated srbench-extra environment; expressions use hinge/max terms, while metrics are computed from estimator predictions.
+
+  bingo:
+    cpu: true
+    conda_env: srbench-extra
+    launcher_method: bingo
+    default_config: evaluation_suites/cpu_symbolic_regression_fourbench/configs/bingo_limited.yaml
+    default_benchmarks: all
+    status: implemented_limited
+    notes: NASA Bingo baseline installed with OpenMPI in the isolated srbench-extra environment; limited config caps rows, evaluations, and per-case time.
+
+  rils_rols:
+    cpu: true
+    conda_env: srbench-morecpu
+    launcher_method: rils_rols
+    default_config: evaluation_suites/cpu_symbolic_regression_fourbench/configs/rils_rols_limited.yaml
+    default_benchmarks: all
+    status: implemented_limited
+    notes: RILS-ROLS installed in an isolated srbench-morecpu environment; limited config caps rows, fit calls, and per-case time for queue-friendly CPU runs.
+
+researched_not_yet_integrated:
+  dso:
+    cpu: possible_for_small_runs
+    priority: medium
+    package_hint: install from dso-org/deep-symbolic-optimization
+    source: https://github.com/dso-org/deep-symbolic-optimization
+    adapter_plan: start with small JSON configs; full SRBench-scale evaluation likely needs GPU/time budget.
+
+  feyn_qlattice:
+    cpu: likely
+    priority: medium
+    package_hint: feyn
+    source: https://docs.abzu.ai/
+    adapter_plan: verify current package availability and license before adding benchmark adapter.
+
+  feat_tpot:
+    cpu: likely
+    priority: medium
+    package_hint: tpot symbolic regression or FEAT lineage
+    source: https://github.com/EpistasisLab
+    adapter_plan: verify currently maintained sklearn-compatible symbolic regression API.
+
+  glyph:
+    cpu: likely
+    priority: low
+    package_hint: glyph
+    source: https://arxiv.org/abs/1803.06226
+    adapter_plan: check Python version compatibility before implementation.
+
+  physo:
+    cpu: possible_for_small_runs
+    priority: low
+    package_hint: physo
+    source: https://github.com/WassimTenachi/PhySO
+    adapter_plan: likely useful for physics/unit-aware cases; may need GPU for practical full runs.

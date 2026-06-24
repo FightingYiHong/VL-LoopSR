@@ -1,0 +1,22 @@
+model:
+  kwargs:
+    population_size: 2000
+    generations: 720
+    max_length: 55
+    max_depth: 16
+    max_time: 1800
+    n_threads: 1
+    objectives: ['r2', 'length']
+    allowed_symbols: 'add,sub,mul,div,sqrt,log,exp,sin,cos,constant,variable'
+    epsilon: 1.0e-7
+    reinserter: 'keep-best'
+    offspring_generator: 'basic'
+    optimizer_iterations: 50
+    optimizer: 'lm'
+    max_evaluations: 10000000
+    tournament_size: 4
+    random_state: 42
+data:
+  max_train_rows: 5000
+runtime:
+  max_fit_seconds: 1860

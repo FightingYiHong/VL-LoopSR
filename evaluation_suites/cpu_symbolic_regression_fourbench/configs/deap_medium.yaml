@@ -1,0 +1,17 @@
+model:
+  kwargs:
+    population_size: 600
+    generations: 80
+    cxpb: 0.5
+    mutpb: 0.25
+    init_max_depth: 3
+    mut_max_depth: 2
+    max_height: 10
+    tournament_size: 4
+    parsimony: 0.0005
+    operators: ['add', 'sub', 'mul', 'div', 'sin', 'cos', 'log', 'sqrt', 'exp']
+    random_state: 42
+data:
+  max_train_rows: 2000
+runtime:
+  max_fit_seconds: 180

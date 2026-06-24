@@ -1,0 +1,19 @@
+data:
+  max_train_rows: 5000
+
+runtime:
+  max_fit_seconds: 300
+
+model:
+  kwargs:
+    population_size: 300
+    generations: 30
+    tournament_size: 3
+    init_max_depth: 3
+    mut_max_depth: 2
+    max_height: 8
+    cxpb: 0.5
+    mutpb: 0.2
+    parsimony: 1.0e-4
+    random_state: 42
+    operators: ['add', 'sub', 'mul', 'div', 'sin', 'cos', 'log', 'sqrt']

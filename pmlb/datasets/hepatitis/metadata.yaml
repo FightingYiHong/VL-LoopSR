@@ -1,0 +1,109 @@
+# Reviewed by [your name here]
+dataset: hepatitis
+description: None yet. See our contributing guide to help us add one.
+source: None yet. See our contributing guide to help us add one.
+publication: None yet. See our contributing guide to help us add one.
+task: classification
+keywords:
+  -
+  -
+target:
+  type: categorical
+  description: None yet. See our contributing guide to help us add one.
+  code: None yet. See our contributing guide to help us add one.
+features:
+  - name: AGE
+    type: continuous
+    description: # optional but recommended, what the feature measures/indicates, unit
+    code: # optional, coding information, e.g., Control = 0, Case = 1
+    transform: # optional, any transformation performed on the feature, e.g., log scaled
+  - name: SEX
+    type: binary
+    description:
+    code:
+    transform:
+  - name: STEROID
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: ANTIVIRALS
+    type: binary
+    description:
+    code:
+    transform:
+  - name: FATIGUE
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: MALAISE
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: ANOREXIA
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: LIVER BIG
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: LIVER FIRM
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: SPLEEN PALPABLE
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: SPIDERS
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: ASCITES
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: VARICES
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: BILIRUBIN
+    type: continuous
+    description:
+    code:
+    transform:
+  - name: ALK PHOSPHATE
+    type: continuous
+    description:
+    code:
+    transform:
+  - name: SGOT
+    type: continuous
+    description:
+    code:
+    transform:
+  - name: ALBUMIN
+    type: continuous
+    description:
+    code:
+    transform:
+  - name: PROTIME
+    type: continuous
+    description:
+    code:
+    transform:
+  - name: HISTOLOGY
+    type: binary
+    description:
+    code:
+    transform:

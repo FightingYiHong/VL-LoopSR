@@ -1,0 +1,15 @@
+fit:
+  procs: 1
+  populations: 2
+  population_size: 20
+  ncyclesperiteration: 50
+  niterations: 3
+  timeout_in_seconds: 20
+  maxsize: 20
+  binary_operators: ['+', '-', '*', '/']
+  unary_operators: ['sin', 'cos', 'exp', 'log']
+  progress: false
+  precision: 32
+  warm_start: false
+  update: false
+  model_selection: best

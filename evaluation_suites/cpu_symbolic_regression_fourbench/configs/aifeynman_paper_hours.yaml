@@ -1,0 +1,9 @@
+data:
+  max_train_rows: 5000
+
+run:
+  op: 7ops.txt
+  bftt: 15
+  poly_deg: 5
+  epoch: 150
+  max_fit_seconds: 21600

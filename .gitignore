@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+
+# Local outputs
+runs/
+logs/
+reports/
+outputs/
+paper_figures*/
+current_result_summary*/
+
+# Local caches
+.cache/
+data/llmsrbench/
+data/pmlb_regression_csv/
+
+# Model weights and private adapters
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.bin
+*.adapter
+
+# Optional official baseline checkouts
+external_repos/LLM-SR/
+external_repos/In-Context-Symbolic-Regression/
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,27 @@
+model:
+  kwargs:
+    population_size: 500
+    stack_size: 36
+    operators:
+      - "+"
+      - "-"
+      - "*"
+      - "/"
+      - sin
+      - cos
+      - exp
+      - log
+      - sqrt
+    use_simplification: true
+    crossover_prob: 0.35
+    mutation_prob: 0.45
+    metric: mse
+    clo_alg: lm
+    clo_threshold: 1.0e-7
+    max_time: 570
+    max_evals: 80000
+    evolutionary_algorithm: AgeFitnessEA
+data:
+  max_train_rows: 3000
+runtime:
+  max_fit_seconds: 600

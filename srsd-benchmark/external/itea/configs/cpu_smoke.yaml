@@ -1,0 +1,11 @@
+model:
+  kwargs:
+    gens: 5
+    popsize: 20
+    expolim: [-2, 2]
+    max_terms: 5
+    fitness_f: rmse
+    simplify_method: null
+    random_state: 42
+    verbose: false
+    tfuncs: ['id', 'sin', 'cos']

@@ -1,0 +1,30 @@
+fit:
+  procs: 1
+  populations: 7
+  population_size: 100
+  ncyclesperiteration: 260
+  niterations: 350
+  timeout_in_seconds: 100
+  maxsize: 46
+  binary_operators: ['+', '-', '*', '/']
+  unary_operators: ['sin', 'cos', 'exp', 'log', 'sqrt']
+  nested_constraints:
+    sin:
+      sin: 0
+      cos: 0
+    cos:
+      sin: 0
+      cos: 0
+    exp:
+      exp: 0
+    log:
+      log: 0
+    sqrt:
+      sqrt: 0
+  progress: false
+  weight_randomize: 0.15
+  precision: 32
+  warm_start: false
+  turbo: true
+  update: false
+  model_selection: best

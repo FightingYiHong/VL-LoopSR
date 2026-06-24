@@ -1,0 +1,17 @@
+data:
+  max_train_rows: 5000
+
+runtime:
+  max_fit_seconds: 900
+
+model:
+  kwargs:
+    gens: 40
+    popsize: 80
+    expolim: [-2, 2]
+    max_terms: 5
+    fitness_f: rmse
+    simplify_method: null
+    random_state: 42
+    verbose: false
+    tfuncs: ['id', 'sin', 'cos', 'log']

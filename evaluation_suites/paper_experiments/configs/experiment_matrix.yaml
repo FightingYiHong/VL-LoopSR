@@ -1,0 +1,207 @@
+run_defaults:
+  project_root: .
+  results_root: runs/paper_experiments
+  log_root: logs/paper_experiments
+  base_method: scripts/test_fey_v11_complexity_exact.py
+  pass_threshold:
+    standard_recovery: 100
+  per_case_timeout_sec:
+    standard_recovery: 600
+    ood_extrapolation: 600
+    high_dimensional_distractors: 900
+    proposer_sft: 100
+    noise_robustness: 100
+    component_ablation: 600
+  resume: true
+
+experiments:
+  01_standard_recovery:
+    paper_figure: Fig. 2
+    status: runnable
+    purpose: "Compact formula recovery across heterogeneous benchmark families."
+    benchmarks:
+      llmsrbench: 240
+      sldbench: 77
+      srbench_feynman: 417
+      srsd: 238
+      total: 972
+    compared_methods:
+      - vl_loopsr
+      - llm_sr
+      - dso_dsr
+      - gplearn
+      - pse_psrn_pse
+      - pysr
+      - icsr
+    split_policy:
+      llmsrbench: "Use HDF5 train/test/OOD-test splits when available."
+      sldbench: "Official train/test split; validation is 20% of train with seed 42."
+      srbench_feynman: "Random split with seed 42: test 25%, validation 20% of remaining train-val."
+      srsd: "Use provided train/validation/test files."
+    primary_readouts:
+      - pass_at_100
+      - mse_pass
+      - perfect_fit_rate
+      - expression_complexity
+      - runtime_sec
+
+  02_extrapolation:
+    paper_figure: Fig. 3
+    status: runnable
+    purpose: "Out-of-range generalization from validation-selected symbolic forms."
+    runner: scripts/run_v11_extrapolation_suites.py
+    benchmarks:
+      constructed62:
+        cases: 62
+        samples:
+          fit: 256
+          validation: 128
+          ood: 512
+      surfacebench40:
+        cases: 40
+        default_samples:
+          fit: 1000
+          validation: 500
+          ood: 500
+    compared_methods:
+      - vl_loopsr
+      - llm_sr
+      - icsr
+      - pysr
+      - pyoperon
+      - dso_dsr
+      - gplearn
+      - ffx
+      - deap
+      - bingo
+      - rils_rols
+      - pse
+    primary_readouts:
+      - mean_id_log_mse
+      - mean_ood_log_mse
+      - id_to_ood_shift
+      - median_ood_id_degradation
+
+  03_high_dimensional_distractors:
+    paper_figure: Fig. 4
+    status: runnable
+    purpose: "Sparse active-variable recovery under independent distractors, correlated proxies, and nonlinear decoys."
+    runner: scripts/run_v11_high_dimensional_interference.py
+    baseline_runner: scripts/run_highdim_interference_baselines.py
+    llm_baseline_runner: scripts/run_highdim_llm_baselines.py
+    construction:
+      formula_count: 24
+      dimensions: [200, 500, 1000]
+      distractor_regimes:
+        - independent_irrelevant
+        - correlated_proxy
+        - nonlinear_decoy
+      total_cases: 216
+      split_sizes:
+        train: 512
+        validation: 256
+        test: 1024
+      target_noise: "0.01 * std(y) independently on splits"
+    compared_methods:
+      - vl_loopsr
+      - pysr
+      - pyoperon
+      - llm_sr
+      - gplearn
+      - physo
+      - dso_dsr
+      - pse
+    primary_readouts:
+      - mean_test_mse
+      - median_test_mse
+      - true_variable_recall
+      - false_discovery_rate
+      - runtime_sec
+
+  04_proposer_sft:
+    paper_figure: Fig. 5
+    status: runnable
+    purpose: "Before/after comparison of the Proposer checkpoint while holding the evaluator and selector fixed."
+    launcher: scripts/launch_v11_sft_before_after_main_100s.sh
+    summarizer: scripts/summarize_v11_sft_before_after.py
+    benchmark_counts:
+      llmsrbench: 240
+      sldbench: 77
+      srbench_feynman: 417
+      srsd: 238
+      total: 972
+    controlled_contrast:
+      before: Qwen3-VL-32B-Instruct
+      after: Qwen3-VL-32B Proposer SFT adapter
+      fixed:
+        - benchmark_list
+        - wrappers
+        - evaluator
+        - validation_selector
+    primary_readouts:
+      - candidate_count
+      - recovered_case_mse
+      - repair_utility
+      - runtime_sec
+      - timeout_fraction
+
+  05_noise_robustness:
+    paper_figure: Fig. 6
+    status: runnable
+    purpose: "Structural stability and compactness under noisy train/validation targets."
+    dataset_manifest: data/noise_robustness_smallrange_v1/manifest.csv
+    runner: scripts/run_v11_noise_robustness.py
+    baseline_runner: scripts/run_noise_robustness_baselines.py
+    construction:
+      formula_count: 20
+      noise_levels: [0, 0.001, 0.01]
+      seeds_per_formula_noise: 3
+      total_cases: 180
+      split_sizes:
+        train: 512
+        validation: 256
+        clean_test: 1024
+    compared_methods:
+      - vl_loopsr
+      - psrn_pse
+      - itea
+      - deap
+      - bingo
+      - dso_dsr
+      - direct_llm
+      - llm_sr
+    primary_readouts:
+      - skeleton_recovery
+      - clean_test_mse
+      - expression_complexity
+      - runtime_sec
+      - timeout_fraction
+
+  06_component_ablation:
+    paper_figure: Fig. 7
+    status: runnable
+    purpose: "Causal contribution of Observer, Critic-guided repair, and Proposer."
+    dataset_generator: scripts/generate_v11_balanced_ablation_dataset.py
+    dataset_root: data/v11_balanced_component_ablation_96
+    runner: scripts/run_v11_ablation_experiments.py
+    construction:
+      total_cases: 96
+      split_sizes:
+        train: 128
+        validation: 128
+        test: 1024
+      targets: noise_free
+      ambient_dimension_range: [12, 28]
+    variants:
+      - full
+      - w_o_observer_all
+      - w_o_critic
+      - w_o_proposer
+    primary_readouts:
+      - mean_test_mse
+      - median_test_mse
+      - mse_lt_1
+      - true_variable_recall
+      - proxy_misuse
+      - valid_expression_count
+      - loop_trajectory

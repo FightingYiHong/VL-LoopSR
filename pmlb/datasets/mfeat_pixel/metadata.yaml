@@ -1,0 +1,1219 @@
+# Reviewed by John Gregg
+dataset: mfeat_pixel
+description: >
+  240 pixel averages in 2 x 3 windows of images of characters 0-9.
+  Each feature below is one of 240 pixel averages in 2 x 3 windows of an image.
+source: https://archive.ics.uci.edu/ml/datasets/Multiple+Features
+publication: >
+  M. van Breukelen, R.P.W. Duin, D.M.J. Tax, J.E. den Hartog
+  'Handwritten digit recognition by combined classifiers'
+  'Kybernetika, vol. 34, no. 4, 1998, 381-386.'
+task: classification
+keywords:
+  - character recognition
+  - feature engineering
+target:
+  type: categorical
+  description: the characters 0-9
+  code: the characters 0-9 are represented by 0-9 respectively
+features:
+  - name: attribute_0
+    type: categorical
+    description: 
+    code: 
+    transform:
+  - name: attribute_1
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_2
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_3
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_4
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_5
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_6
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_7
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_8
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_9
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_10
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_11
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_12
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_13
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_14
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_15
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_16
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_17
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_18
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_19
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_20
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_21
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_22
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_23
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_24
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_25
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_26
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_27
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_28
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_29
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_30
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_31
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_32
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_33
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_34
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_35
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_36
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_37
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_38
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_39
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_40
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_41
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_42
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_43
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_44
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_45
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_46
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_47
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_48
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_49
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_50
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_51
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_52
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_53
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_54
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_55
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_56
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_57
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_58
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_59
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_60
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_61
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_62
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_63
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_64
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_65
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_66
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_67
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_68
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_69
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_70
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_71
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_72
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_73
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_74
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_75
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_76
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_77
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_78
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_79
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_80
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_81
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_82
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_83
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_84
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_85
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_86
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_87
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_88
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_89
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_90
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_91
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_92
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_93
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_94
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_95
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_96
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_97
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_98
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_99
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_100
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_101
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_102
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_103
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_104
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_105
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_106
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_107
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_108
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_109
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_110
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_111
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_112
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_113
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_114
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_115
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_116
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_117
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_118
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_119
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_120
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_121
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_122
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_123
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_124
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_125
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_126
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_127
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_128
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_129
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_130
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_131
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_132
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_133
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_134
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_135
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_136
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_137
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_138
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_139
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_140
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_141
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_142
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_143
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_144
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_145
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_146
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_147
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_148
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_149
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_150
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_151
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_152
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_153
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_154
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_155
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_156
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_157
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_158
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_159
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_160
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_161
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_162
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_163
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_164
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_165
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_166
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_167
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_168
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_169
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_170
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_171
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_172
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_173
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_174
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_175
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_176
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_177
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_178
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_179
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_180
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_181
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_182
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_183
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_184
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_185
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_186
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_187
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_188
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_189
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_190
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_191
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_192
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_193
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_194
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_195
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_196
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_197
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_198
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_199
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_200
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_201
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_202
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_203
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_204
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_205
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_206
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_207
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_208
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_209
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_210
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_211
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_212
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_213
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_214
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_215
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_216
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_217
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_218
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_219
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_220
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_221
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_222
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_223
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_224
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_225
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_226
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_227
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_228
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_229
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_230
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_231
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_232
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_233
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_234
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_235
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_236
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_237
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_238
+    type: categorical
+    description:
+    code:
+    transform:
+  - name: attribute_239
+    type: categorical
+    description:
+    code:
+    transform:

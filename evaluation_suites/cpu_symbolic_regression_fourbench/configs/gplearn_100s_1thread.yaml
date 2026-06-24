@@ -1,0 +1,21 @@
+model:
+  output_dir: './gplearn_100s_1thread/'
+  kwargs:
+    population_size: 1200
+    generations: 80
+    stopping_criteria: 1.0e-9
+    const_range: !!python/tuple [-5.0, 5.0]
+    p_crossover: 0.68
+    p_subtree_mutation: 0.12
+    p_hoist_mutation: 0.05
+    p_point_mutation: 0.1
+    warm_start: False
+    max_samples: 0.9
+    verbose: False
+    parsimony_coefficient: 0.01
+    function_set: ['add', 'sub', 'mul', 'div', 'sqrt', 'sin', 'cos', 'log']
+    n_jobs: 1
+data:
+  max_train_rows: 3000
+runtime:
+  max_fit_seconds: 100

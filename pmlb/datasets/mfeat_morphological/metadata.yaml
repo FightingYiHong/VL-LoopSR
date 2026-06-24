@@ -1,0 +1,47 @@
+# Reviewed by John Gregg
+dataset: mfeat_morphological
+description: 6 morphological features of images of characters 0-9
+source: https://archive.ics.uci.edu/ml/datasets/Multiple+Features
+publication: >
+  M. van Breukelen, R.P.W. Duin, D.M.J. Tax, J.E. den Hartog
+  'Handwritten digit recognition by combined classifiers'
+  'Kybernetika, vol. 34, no. 4, 1998, 381-386.'
+task: classification
+keywords:
+  - character recognition
+  - feature engineering
+target:
+  type: categorical
+  description: the characters 0-9
+  code: the characters 0-9 are represented by 0-9 respectively
+features:
+  - name: att1
+    type: categorical
+    description: one of six 6 morphological features of images 
+    code: None
+    transform: None
+  - name: att2
+    type: categorical
+    description: one of six 6 morphological features of images
+    code: None
+    transform: None
+  - name: att3
+    type: categorical
+    description: one of six 6 morphological features of images
+    code: None
+    transform: None
+  - name: att4
+    type: continuous
+    description: one of six 6 morphological features of images
+    code: None
+    transform: None
+  - name: att5
+    type: continuous
+    description: one of six 6 morphological features of images
+    code: None
+    transform: None
+  - name: att6
+    type: continuous
+    description: one of six 6 morphological features of images
+    code: None
+    transform: None

@@ -1,0 +1,119 @@
+benchmarks:
+  - srbench
+  - sldbench
+  - llmsrbench
+  - srsd
+
+gpu_methods:
+  structplan_v10:
+    requires_gpu: true
+    gpu_role: local LLM/vLLM inference
+    wrapper_conda_env: srbench-llmsr_visual
+    vllm_conda_env: sr
+    local_status: runnable_via_existing_wrappers
+    fourbench_status: implemented
+    benchmark_wrappers:
+      srbench: scripts/run_SRbench.py
+      sldbench: scripts/run_sldbench.py
+      llmsrbench: scripts/run_llmsrbench.py
+      srsd: scripts/run_srds.py
+    default_model: Qwen/Qwen2.5-VL-32B-Instruct
+    default_api_base: http://127.0.0.1:8001/v1
+    notes: Existing v10/test_fey workflow uses an OpenAI-compatible local LLM endpoint; srbench-llmsr_visual has openai client pieces, while sr has vllm/torch/transformers for serving.
+
+  aifeynman_gpu:
+    requires_gpu: recommended
+    gpu_role: neural network helper inside AI Feynman
+    conda_env: AIFey
+    local_status: cpu_adapter_exists_gpu_runtime_uncertain
+    fourbench_status: partial
+    default_config: srsd-benchmark/external/ai_feynman2/configs/cpu_practical.yaml
+    notes: Existing unified runner can call AI Feynman; to make this a real GPU run, verify the AIFey environment has CUDA-enabled torch.
+
+  dso_dsr:
+    requires_gpu: recommended_for_full_runs
+    gpu_role: TensorFlow 1.x policy/RNN training
+    conda_env: dso
+    source_local: external_repos/deep-symbolic-optimization
+    srsd_wrapper: srsd-benchmark/external/dso
+    fourbench_status: implemented_limited
+    default_config: evaluation_suites/gpu_symbolic_regression_fourbench/configs/dso_limited.yaml
+    benchmark_runner: scripts/run_cpu_baseline_benchmarks.py
+    priority: 1
+    notes: Local dso env now has datasets and editable dso install; limited four-benchmark adapter uses DeepSymbolicRegressor with conservative sample and thread settings.
+
+  e2e_transformer:
+    requires_gpu: recommended
+    gpu_role: Transformer inference/refinement
+    conda_env: srbench-llmsr_visual
+    source_local: srsd-benchmark/external/e2e
+    fourbench_status: adapter_needed
+    priority: 1
+    notes: Existing SRSD runner loads model checkpoint with torch.cuda if available; needs checkpoint and four-benchmark data bridge.
+
+  nesymres:
+    requires_gpu: recommended
+    gpu_role: Transformer inference
+    conda_env: to_create_or_reuse
+    source: https://github.com/SymposiumOrganization/NeuralSymbolicRegressionThatScales
+    fourbench_status: adapter_needed
+    priority: 2
+    notes: Strong neural symbolic regression baseline; often used as backbone for TPSR-style methods.
+
+  tpsr:
+    requires_gpu: recommended
+    gpu_role: Transformer backbone plus MCTS planning
+    conda_env: to_create_or_reuse
+    source: https://github.com/deep-symbolic-mathematics/TPSR
+    fourbench_status: adapter_needed
+    priority: 2
+    notes: Needs pretrained E2E/NeSymReS backbone weights.
+
+  psrn_pse:
+    requires_gpu: true
+    gpu_role: PyTorch parallel symbolic enumeration
+    conda_env: PSRN
+    source: https://github.com/intell-sci-comput/PTS
+    package_hint: psrn
+    local_status: import_checked
+    fourbench_status: implemented_limited
+    default_config: evaluation_suites/gpu_symbolic_regression_fourbench/configs/psrn_limited.yaml
+    benchmark_runner: scripts/run_cpu_baseline_benchmarks.py
+    priority: 2
+    notes: Import check passed for psrn and CUDA-enabled torch in PSRN env; limited four-benchmark adapter added through the shared tabular benchmark runner.
+
+  llm_sr:
+    requires_gpu: true_for_local_llm
+    gpu_role: LLM inference plus evolutionary/search loop
+    conda_env: to_create_or_reuse
+    source: https://github.com/deep-symbolic-mathematics/LLM-SR
+    fourbench_status: adapter_needed
+    priority: 2
+    notes: Official ICLR 2025 implementation; should be paired with local vLLM or API-compatible endpoint.
+
+  sr_llm:
+    requires_gpu: true_for_local_llm_and_drl
+    gpu_role: LLM/RAG plus deep reinforcement learning search
+    conda_env: to_create_or_reuse
+    source: https://github.com/ThuOneLab/SR-LLM
+    fourbench_status: adapter_needed
+    priority: 3
+    notes: PNAS 2026 paper/code; likely more domain-framework-specific than generic SRBench.
+
+  physo:
+    requires_gpu: recommended
+    gpu_role: PyTorch deep reinforcement learning
+    conda_env: to_create_or_reuse
+    source: https://github.com/WassimTenachi/PhySO
+    fourbench_status: adapter_needed
+    priority: 3
+    notes: Especially useful for physics/unit-aware tasks; four-benchmark adapter needs symbol/unit handling policy.
+
+  gfn_sr:
+    requires_gpu: recommended
+    gpu_role: GFlowNet training
+    conda_env: to_create_or_reuse
+    source: https://arxiv.org/abs/2312.00396
+    fourbench_status: research_needed
+    priority: 4
+    notes: Promising but code/package maturity should be checked before implementation.

@@ -1,0 +1,4 @@
+data:
+  max_train_rows: 4000
+runtime:
+  max_fit_seconds: 600

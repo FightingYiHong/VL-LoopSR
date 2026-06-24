@@ -1,0 +1,18 @@
+model:
+  kwargs:
+    population_size: 50
+    generations: 5
+    max_length: 20
+    max_depth: 8
+    max_time: 20
+    n_threads: 1
+    objectives: ['r2', 'length']
+    allowed_symbols: 'add,sub,mul,div,constant,variable'
+    epsilon: 1.0e-5
+    reinserter: 'keep-best'
+    offspring_generator: 'basic'
+    optimizer_iterations: 2
+    optimizer: 'lm'
+    max_evaluations: 10000
+    tournament_size: 3
+    random_state: 42
