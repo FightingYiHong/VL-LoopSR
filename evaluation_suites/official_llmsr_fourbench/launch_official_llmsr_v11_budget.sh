@@ -4,7 +4,7 @@ set -euo pipefail
 RUN_ID="${1:-official_llm_sr_equal_v11_600s_$(date +%Y%m%d_%H%M%S)}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="${ROOT_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
-OFFICIAL_ROOT="${OFFICIAL_LLMSR_ROOT:-${ROOT_DIR}/external_repos/LLM-SR}"
+OFFICIAL_ROOT="${OFFICIAL_LLMSR_ROOT:-${ROOT_DIR}/data/external/methods/LLM-SR}"
 RESULTS_ROOT="${OFFICIAL_LLMSR_RESULTS_ROOT:-${ROOT_DIR}/runs/official_llmsr/${RUN_ID}}"
 LOG_DIR="${OFFICIAL_LLMSR_LOG_ROOT:-${ROOT_DIR}/logs/official_llmsr/${RUN_ID}}"
 
@@ -24,10 +24,10 @@ export HF_DATASETS_OFFLINE="${HF_DATASETS_OFFLINE:-0}"
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-0}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-0}"
 
-export LLMSRBENCH_ROOT="${LLMSRBENCH_ROOT:-${ROOT_DIR}/data/llmsrbench}"
+export LLMSRBENCH_ROOT="${LLMSRBENCH_ROOT:-${ROOT_DIR}/data/external/llmsrbench}"
 export LLMSRBENCH_HDF5="${LLMSRBENCH_HDF5:-${LLMSRBENCH_ROOT}/lsr_bench_data.hdf5}"
-export SRSD_ROOT="${SRSD_ROOT:-${ROOT_DIR}/srsd-benchmark/resource/datasets/srsd}"
-export SRBENCH_ROOT="${SRBENCH_ROOT:-${ROOT_DIR}/srbench}"
+export SRSD_ROOT="${SRSD_ROOT:-${ROOT_DIR}/data/external/srsd-benchmark/resource/datasets/srsd}"
+export SRBENCH_ROOT="${SRBENCH_ROOT:-${ROOT_DIR}/data/external/srbench}"
 export SRBENCH_DATASETS_INFO_CSV="${SRBENCH_DATASETS_INFO_CSV:-${SRBENCH_ROOT}/docs/csv/datasets_info.csv}"
 export SRBENCH_PMLB_CACHE_DIR="${SRBENCH_PMLB_CACHE_DIR:-${ROOT_DIR}/.cache/pmlb_cache}"
 export SRBENCH_LOCAL_CSV_ROOT="${SRBENCH_LOCAL_CSV_ROOT:-${ROOT_DIR}/data/pmlb_regression_csv}"
@@ -46,7 +46,7 @@ echo "[OFFICIAL-LLMSR] case_timeout_sec=${CASE_TIMEOUT_SEC:-600}"
 
 nohup conda run --no-capture-output -n "${OFFICIAL_LLMSR_CONDA_ENV:-base}" \
   python evaluation_suites/official_llmsr_fourbench/run_official_llmsr_fourbench.py \
-    --benchmarks "${OFFICIAL_LLMSR_BENCHMARKS:-sldbench,llmsrbench,srsd,srbench}" \
+    --benchmarks "${OFFICIAL_LLMSR_BENCHMARKS:-llmsrbench,srbench,srsd}" \
     --results-root "${RESULTS_ROOT}" \
     --case-timeout-sec "${CASE_TIMEOUT_SEC:-600}" \
     --samples-per-prompt "${OFFICIAL_LLMSR_SAMPLES_PER_PROMPT:-4}" \
@@ -65,7 +65,7 @@ root_dir=${ROOT_DIR}
 official_root=${OFFICIAL_ROOT}
 official_commit=${OFFICIAL_LLMSR_COMMIT}
 results_root=${RESULTS_ROOT}
-benchmarks=${OFFICIAL_LLMSR_BENCHMARKS:-sldbench,llmsrbench,srsd,srbench}
+benchmarks=${OFFICIAL_LLMSR_BENCHMARKS:-llmsrbench,srbench,srsd}
 case_timeout_sec=${CASE_TIMEOUT_SEC:-600}
 started_at=$(date -Is)
 EOF

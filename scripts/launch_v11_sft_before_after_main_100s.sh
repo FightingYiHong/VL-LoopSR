@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ -f /etc/profile.d/llmsr_baseline.sh ]]; then
-  # shellcheck source=/dev/null
-  source /etc/profile.d/llmsr_baseline.sh
-fi
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="${ROOT_DIR:-${LLMSR_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}}"
 export ROOT_DIR
@@ -18,7 +13,7 @@ REPORT_PARENT="${SFT_COMPARE_REPORT_PARENT:-${ROOT_DIR}/runs/reports}"
 
 TIME_BUDGET="${SFT_COMPARE_TIME_BUDGET:-100}"
 PASS_THRESHOLD="${SFT_COMPARE_PASS_THRESHOLD:-100}"
-BENCHMARKS="${SFT_COMPARE_BENCHMARKS:-sldbench llmsrbench srsd srbench}"
+BENCHMARKS="${SFT_COMPARE_BENCHMARKS:-llmsrbench srbench srsd}"
 SAMPLE_K="${SFT_COMPARE_SAMPLE_K:-0}"
 RANDOM_SEED="${SFT_COMPARE_RANDOM_SEED:-20260526}"
 WAIT_FOR_CURRENT="${SFT_COMPARE_WAIT_FOR_CURRENT:-0}"
@@ -54,10 +49,10 @@ export NO_PROXY="127.0.0.1,localhost,${NO_PROXY:-}"
 export HF_HOME="${SFT_COMPARE_HF_HOME:-${HF_HOME:-${ROOT_DIR}/.cache/huggingface}}"
 export HF_DATASETS_CACHE="${SFT_COMPARE_HF_DATASETS_CACHE:-${HF_DATASETS_CACHE:-${HF_HOME}/datasets}}"
 export HF_HUB_CACHE="${SFT_COMPARE_HF_HUB_CACHE:-${HF_HUB_CACHE:-${HF_HOME}/hub}}"
-export LLMSRBENCH_ROOT="${SFT_COMPARE_LLMSRBENCH_ROOT:-${LLMSRBENCH_ROOT:-${ROOT_DIR}/data/llmsrbench}}"
+export LLMSRBENCH_ROOT="${SFT_COMPARE_LLMSRBENCH_ROOT:-${LLMSRBENCH_ROOT:-${ROOT_DIR}/data/external/llmsrbench}}"
 export LLMSRBENCH_HDF5="${SFT_COMPARE_LLMSRBENCH_HDF5:-${LLMSRBENCH_HDF5:-${LLMSRBENCH_ROOT}/lsr_bench_data.hdf5}}"
-export SRSD_ROOT="${SFT_COMPARE_SRSD_ROOT:-${SRSD_ROOT:-${ROOT_DIR}/srsd-benchmark/resource/datasets/srsd}}"
-export SRBENCH_ROOT="${SFT_COMPARE_SRBENCH_ROOT:-${SRBENCH_ROOT:-${ROOT_DIR}/srbench}}"
+export SRSD_ROOT="${SFT_COMPARE_SRSD_ROOT:-${SRSD_ROOT:-${ROOT_DIR}/data/external/srsd-benchmark/resource/datasets/srsd}}"
+export SRBENCH_ROOT="${SFT_COMPARE_SRBENCH_ROOT:-${SRBENCH_ROOT:-${ROOT_DIR}/data/external/srbench}}"
 export SRBENCH_DATASETS_INFO_CSV="${SFT_COMPARE_SRBENCH_DATASETS_INFO_CSV:-${SRBENCH_DATASETS_INFO_CSV:-${SRBENCH_ROOT}/docs/csv/datasets_info.csv}}"
 export SRBENCH_PMLB_CACHE_DIR="${SFT_COMPARE_SRBENCH_PMLB_CACHE_DIR:-${SRBENCH_PMLB_CACHE_DIR:-${ROOT_DIR}/.cache/pmlb_cache}}"
 export SRBENCH_LOCAL_CSV_ROOT="${SFT_COMPARE_SRBENCH_LOCAL_CSV_ROOT:-${SRBENCH_LOCAL_CSV_ROOT:-${ROOT_DIR}/data/pmlb_regression_csv}}"
@@ -110,13 +105,12 @@ configure_common_runner_env() {
   if [[ "${SAMPLE_K}" =~ ^[0-9]+$ ]] && (( SAMPLE_K > 0 )); then
     export V11_300_FULL=0
     export V11_300_SAMPLE_K="${SAMPLE_K}"
-    export SLDBENCH_RANDOM_SAMPLE_K="${SAMPLE_K}"
     export LLMSRBENCH_RANDOM_SAMPLE_K="${SAMPLE_K}"
     export SRSD_RANDOM_SAMPLE_K="${SAMPLE_K}"
     export SRBENCH_RANDOM_SAMPLE_K="${SAMPLE_K}"
   else
     export V11_300_FULL=1
-    unset V11_300_SAMPLE_K SLDBENCH_RANDOM_SAMPLE_K LLMSRBENCH_RANDOM_SAMPLE_K SRSD_RANDOM_SAMPLE_K SRBENCH_RANDOM_SAMPLE_K
+    unset V11_300_SAMPLE_K LLMSRBENCH_RANDOM_SAMPLE_K SRSD_RANDOM_SAMPLE_K SRBENCH_RANDOM_SAMPLE_K
   fi
 
   export LLMSR_V11_ENABLE_VLM_OBSERVER="${LLMSR_V11_ENABLE_VLM_OBSERVER:-1}"

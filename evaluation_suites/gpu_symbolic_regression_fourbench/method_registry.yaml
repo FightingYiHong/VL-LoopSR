@@ -19,7 +19,7 @@ gpu_methods:
       srsd: scripts/run_srds.py
     default_model: Qwen/Qwen2.5-VL-32B-Instruct
     default_api_base: http://127.0.0.1:8001/v1
-    notes: Existing v10/test_fey workflow uses an OpenAI-compatible local LLM endpoint; srbench-llmsr_visual has openai client pieces, while sr has vllm/torch/transformers for serving.
+    notes: VEGA-SR uses an OpenAI-compatible endpoint; serving and wrapper environments may be installed separately.
 
   aifeynman_gpu:
     requires_gpu: recommended
@@ -34,7 +34,7 @@ gpu_methods:
     requires_gpu: recommended_for_full_runs
     gpu_role: TensorFlow 1.x policy/RNN training
     conda_env: dso
-    source_local: external_repos/deep-symbolic-optimization
+    source_local: data/external/methods/deep-symbolic-optimization
     srsd_wrapper: srsd-benchmark/external/dso
     fourbench_status: implemented_limited
     default_config: evaluation_suites/gpu_symbolic_regression_fourbench/configs/dso_limited.yaml

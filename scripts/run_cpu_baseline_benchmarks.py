@@ -7,7 +7,6 @@ benchmark wrappers.
 The first supported method is gplearn because it is installed and smoke-tested
 in the `srbench-gplearn` environment. This runner reuses the existing benchmark
 selection/loading code from:
-  - scripts/run_sldbench.py
   - scripts/run_srds.py
   - scripts/run_SRbench.py
   - scripts/run_llmsrbench.py
@@ -1471,7 +1470,15 @@ def fit_aifeynman(train_df, val_df, test_df, config_path, random_state=None):
         random_state=random_state,
     )
 
-    runner = PROJECT_ROOT / "srsd-benchmark" / "external" / "ai_feynman2" / "ai_feynman_runner.py"
+    runner = (
+        PROJECT_ROOT
+        / "data"
+        / "external"
+        / "srsd-benchmark"
+        / "external"
+        / "ai_feynman2"
+        / "ai_feynman_runner.py"
+    )
     max_fit_seconds = float(run_config.get("max_fit_seconds", 900))
     with tempfile.TemporaryDirectory(prefix="aifeynman_", dir=os.environ.get("CPU_SR_TMPDIR", "/tmp")) as tmpdir:
         case_path = os.path.join(tmpdir, "case.txt")
@@ -1682,9 +1689,6 @@ METHOD_FITTERS = {
 
 
 def collect_tasks(benchmark: str):
-    if benchmark == "sldbench":
-        mod = import_script_module("cpu_sldbench_loader", SCRIPT_DIR / "run_sldbench.py")
-        return mod, mod.collect_sldbench_tasks()
     if benchmark == "llmsrbench":
         mod = import_script_module("cpu_llmsrbench_loader", SCRIPT_DIR / "run_llmsrbench.py")
         if not mod.LLMSRBENCH_CASES_ROOT and not os.path.exists(mod.LLMSRBENCH_HDF5):
@@ -1710,22 +1714,6 @@ def collect_tasks(benchmark: str):
 
 
 def load_case(benchmark: str, mod, row):
-    if benchmark == "sldbench":
-        train_df, val_df, test_df = mod.load_sldbench_case(row)
-        meta = {
-            "task_type": "sldbench",
-            "dataset_dir": "sldbench",
-            "difficulty": row.get("task_name"),
-            "base_name": row.get("case_name"),
-            "case_name": row.get("case_name"),
-            "sldbench_task_name": row.get("task_name"),
-            "sldbench_group_key": row.get("group_key"),
-            "sldbench_target_idx": row.get("target_idx"),
-            "sldbench_target_name": row.get("target_name"),
-            "original_feature_names": " | ".join([str(x) for x in row.get("feature_names", [])]),
-        }
-        return train_df, val_df, test_df, meta
-
     if benchmark == "llmsrbench":
         train_df, val_df, test_df, extra = mod.load_llmsrbench_case(row)
         meta = {
@@ -1791,8 +1779,6 @@ def load_case(benchmark: str, mod, row):
 
 
 def row_case_name(benchmark: str, row):
-    if benchmark == "sldbench":
-        return row.get("case_name")
     if benchmark == "llmsrbench":
         return row.get("case_name")
     if benchmark == "srbench":
@@ -2151,12 +2137,7 @@ def run_isolated_case(args, idx: int, total: int, row, config_path: str, results
 
 def print_one_result(benchmark: str, idx: int, total: int, row, res):
     print(f"[{idx}/{total}] Processing: {row_case_name(benchmark, row)}")
-    if benchmark == "sldbench":
-        print(f"   task_name:           {row.get('task_name')}")
-        print(f"   group_key:           {row.get('group_key')}")
-        print(f"   target_name:         {row.get('target_name')}")
-        print(f"   original_features:   {row.get('feature_names')}")
-    elif benchmark == "llmsrbench":
+    if benchmark == "llmsrbench":
         print(f"   split_name:          {row.get('split_name')}")
         print(f"   true_expression:     {row.get('true_expression')}")
         print(f"   original_symbols:    {row.get('symbols')}")
@@ -2245,7 +2226,7 @@ def get_argparser():
     parser.add_argument(
         "--benchmark",
         required=True,
-        choices=["sldbench", "srbench", "llmsrbench", "srsd"],
+        choices=["srbench", "llmsrbench", "srsd"],
         help="Benchmark wrapper to reuse.",
     )
     parser.add_argument("--method", default="gplearn", choices=sorted(METHOD_FITTERS), help="CPU baseline method.")
@@ -2270,19 +2251,19 @@ def get_argparser():
 
 
 def default_config_for_method(method: str) -> str:
-    external = PROJECT_ROOT / "srsd-benchmark" / "external"
+    configs = PROJECT_ROOT / "evaluation_suites" / "cpu_symbolic_regression_fourbench" / "configs"
     paths = {
-        "gplearn": external / "gplearn" / "configs" / "cpu_fast.yaml",
-        "aifeynman": external / "ai_feynman2" / "configs" / "cpu_practical.yaml",
-        "bingo": PROJECT_ROOT / "evaluation_suites" / "cpu_symbolic_regression_fourbench" / "configs" / "bingo_limited.yaml",
-        "deap": external / "deap" / "configs" / "cpu_practical.yaml",
+        "gplearn": configs / "gplearn_100s_1thread.yaml",
+        "aifeynman": configs / "aifeynman_100s.yaml",
+        "bingo": configs / "bingo_100s.yaml",
+        "deap": configs / "deap_100s.yaml",
         "dso": PROJECT_ROOT / "evaluation_suites" / "gpu_symbolic_regression_fourbench" / "configs" / "dso_limited.yaml",
-        "ffx": PROJECT_ROOT / "evaluation_suites" / "cpu_symbolic_regression_fourbench" / "configs" / "ffx_fast.yaml",
+        "ffx": configs / "ffx_100s.yaml",
         "psrn": PROJECT_ROOT / "evaluation_suites" / "gpu_symbolic_regression_fourbench" / "configs" / "psrn_limited.yaml",
-        "pysr": external / "pysr" / "configs" / "cpu_fast.yaml",
-        "pyoperon": external / "pyoperon" / "configs" / "cpu_fast.yaml",
-        "rils_rols": PROJECT_ROOT / "evaluation_suites" / "cpu_symbolic_regression_fourbench" / "configs" / "rils_rols_limited.yaml",
-        "itea": external / "itea" / "configs" / "cpu_fast.yaml",
+        "pysr": configs / "pysr_100s_1thread.yaml",
+        "pyoperon": configs / "pyoperon_100s_1thread.yaml",
+        "rils_rols": configs / "rils_rols_100s.yaml",
+        "itea": configs / "itea_100s.yaml",
     }
     return str(paths[method])
 

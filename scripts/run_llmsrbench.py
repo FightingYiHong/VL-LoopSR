@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Run LLM-SRBench with StructPlan-SR v10/test_fey.
+Run LLMSRBench with VEGA-SR.
 
 Core idea:
   LLM-SRBench is used only as the task/data provider.
-  The actual solver is delegated to v10._run_core_pipeline(), so this script
-  works as a benchmark wrapper in the same style as scripts/run_sldbench.py.
+  The actual solver is delegated to vega_sr._run_core_pipeline(), keeping the
+  benchmark-specific data logic outside the solver.
 
 Data convention:
   - data/*.parquet       : metadata (name / symbols / expression / ...)
@@ -53,14 +53,16 @@ from benchmark_metrics import enrich_result_metrics
 
 V10_PATH = Path(os.environ.get(
     "LLMSRBENCH_V10_PATH",
-    os.environ.get("LLMSR_V10_PATH", str(SCRIPT_DIR / "test_fey.py")),
+    os.environ.get("LLMSR_V10_PATH", str(SCRIPT_DIR / "vega_sr.py")),
 )).resolve()
 
 
 # =========================================================
 # LLM-SRBench config
 # =========================================================
-LLMSRBENCH_ROOT = os.environ.get("LLMSRBENCH_ROOT", str(PROJECT_ROOT / "data" / "llmsrbench"))
+LLMSRBENCH_ROOT = os.environ.get(
+    "LLMSRBENCH_ROOT", str(PROJECT_ROOT / "data" / "external" / "llmsrbench")
+)
 LLMSRBENCH_HDF5 = os.environ.get("LLMSRBENCH_HDF5", os.path.join(LLMSRBENCH_ROOT, "lsr_bench_data.hdf5"))
 LLMSRBENCH_CASES_ROOT = os.environ.get("LLMSRBENCH_CASES_ROOT", "")
 
@@ -120,8 +122,8 @@ FALLBACK_MIN_VAL_ROWS = int(os.environ.get("LLMSRBENCH_FALLBACK_MIN_VAL_ROWS", "
 def import_v10_module():
     if not V10_PATH.exists():
         raise FileNotFoundError(
-            f"Cannot find v10 file: {V10_PATH}\n"
-            "Set LLMSRBENCH_V10_PATH or LLMSR_V10_PATH to the actual v10 python file."
+            f"Cannot find VEGA-SR entry point: {V10_PATH}\n"
+            "Set LLMSRBENCH_V10_PATH or LLMSR_V10_PATH to a compatible Python file."
         )
 
     spec = importlib.util.spec_from_file_location("llmsrbench_v10_runtime", str(V10_PATH))

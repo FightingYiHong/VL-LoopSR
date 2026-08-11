@@ -73,7 +73,7 @@ SUPPORTED_METHODS = set(METHOD_FITTERS) | set(GPU_METHOD_ALIASES) | EXTRA_METHOD
 DEFAULT_LLM_API_BASE = os.environ.get("NOISE_BASELINE_LLM_API_BASE", "http://127.0.0.1:8001/v1")
 DEFAULT_LLM_MODEL = os.environ.get("NOISE_BASELINE_LLM_MODEL", "")
 DEFAULT_OFFICIAL_LLMSR_ROOT = Path(
-    os.environ.get("OFFICIAL_LLMSR_ROOT", str(ROOT / "external_repos" / "LLM-SR"))
+    os.environ.get("OFFICIAL_LLMSR_ROOT", str(ROOT / "data" / "external" / "methods" / "LLM-SR"))
 )
 
 
@@ -1043,7 +1043,7 @@ def parse_args():
     parser.add_argument("--timeout-grace-sec", type=float, default=30.0)
     parser.add_argument("--parent-timeout-sec", type=float, default=0.0)
     parser.add_argument("--max-cases", type=int, default=0)
-    parser.add_argument("--noise-levels", default="0,0.001,0.01,0.1")
+    parser.add_argument("--noise-levels", default="0,0.001,0.01")
     parser.add_argument("--dataset-manifest", default="", help="Optional fixed NoiseRobust-SR manifest.csv to read instead of generating splits.")
     parser.add_argument("--benchmarks", default=None)
     parser.add_argument("--n-train", type=int, default=512)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Run the VL-LoopSR pipeline on high-dimensional distractor-variable tasks.
+"""Run the VEGA-SR pipeline on high-dimensional distractor-variable tasks.
 
 The experiment matches the paper-table design:
 
@@ -12,7 +12,7 @@ The experiment matches the paper-table design:
   skeleton recovery, MSE, complexity, and runtime.
 
 Ground-truth formulas and active-variable lists are kept out of the metadata
-passed to VL-LoopSR. They are used only by this runner for post-hoc scoring.
+passed to VEGA-SR. They are used only by this runner for post-hoc scoring.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ from benchmark_metrics import (
     srbench_formula_recovery,
     strict_formula_recovery,
 )
-DEFAULT_V11_PATH = ROOT / "scripts" / "test_fey_v11_complexity_exact.py"
+DEFAULT_V11_PATH = ROOT / "scripts" / "vega_sr.py"
 PASS_MSE_THRESHOLD = 100.0
 EXACT_MSE_THRESHOLD = 1e-8
 SKELETON_MSE_THRESHOLD = 1e-4
@@ -510,7 +510,7 @@ def select_highdim_prefilter_features(
     top_m: int,
     random_state: int,
 ) -> tuple[list[str], dict]:
-    """Select a compact no-leakage feature subset before VL-LoopSR.
+    """Select a compact no-leakage feature subset before VEGA-SR.
 
     The selector only uses train/validation X-y statistics. It deliberately
     combines univariate, nonlinear, and pair-interaction signals because some
@@ -846,7 +846,7 @@ def run_child(args) -> int:
         out = {
             **result,
             **row_meta,
-            "method": "vl_loopsr",
+            "method": "vega_sr",
             "case_index": case.case_index,
             "case_name": case.case_name,
             "repeat_seed": int(args.repeat_seed),
@@ -863,7 +863,7 @@ def run_child(args) -> int:
     except BaseException as exc:
         case_meta = asdict(case)
         out = {
-            "method": "vl_loopsr",
+            "method": "vega_sr",
             "case_index": int(args.case_index),
             "case_name": case_meta.get("case_name"),
             "base_formula_id": case_meta.get("base_formula_id"),
@@ -902,7 +902,7 @@ def run_child(args) -> int:
 
 def timeout_row(args, case: HighDimCase, runtime_sec: float, log_path: Path, parent_timeout_sec: float):
     return {
-        "method": "vl_loopsr",
+        "method": "vega_sr",
         "case_index": int(case.case_index),
         "case_name": case.case_name,
         "base_formula_id": case.base_formula_id,
@@ -971,7 +971,7 @@ def summarize(rows: list[dict], out_dir: Path):
     ]:
         if column not in df:
             df[column] = np.nan
-    df.to_csv(out_dir / "all_high_dimensional_interference_vl_loopsr_results.csv", index=False)
+    df.to_csv(out_dir / "all_high_dimensional_interference_vega_sr_results.csv", index=False)
     summary = (
         df.groupby(["dimension", "interference_type", "method"], dropna=False)
         .agg(
@@ -998,7 +998,7 @@ def summarize(rows: list[dict], out_dir: Path):
         )
         .reset_index()
     )
-    summary.to_csv(out_dir / "summary_high_dimensional_interference_vl_loopsr.csv", index=False)
+    summary.to_csv(out_dir / "summary_high_dimensional_interference_vega_sr.csv", index=False)
     plot_figures(df, summary, out_dir)
     write_design_doc(out_dir, summary)
 
@@ -1161,14 +1161,14 @@ def write_design_doc(out_dir: Path, summary: pd.DataFrame):
     lines = [
         "# High-Dimensional Interference Experiment",
         "",
-        "Base method: `scripts/test_fey_v11_complexity_exact.py` (V11).",
+        "Base method: `scripts/vega_sr.py`.",
         "",
         "Design:",
         "",
         "- Dimensions: `d=200,500,1000`.",
         "- True variables per formula: `k=2,3,4,5`; all remaining dimensions are distractors.",
         "- Interference types: independent irrelevant variables, correlated proxy variables, nonlinear decoys.",
-        "- V11 receives only the generated train/val/test data plus generic case metadata; true variables/formulas are used only for scoring.",
+        "- VEGA-SR receives only the generated train/val/test data plus generic case metadata; true variables/formulas are used only for scoring.",
         "",
         "Metrics:",
         "",
@@ -1191,8 +1191,8 @@ def write_design_doc(out_dir: Path, summary: pd.DataFrame):
 
 def run_parent(args) -> int:
     out_dir = Path(args.out_dir)
-    result_dir = out_dir / "case_results" / "vl_loopsr"
-    log_dir = out_dir / "case_logs" / "vl_loopsr"
+    result_dir = out_dir / "case_results" / "vega_sr"
+    log_dir = out_dir / "case_logs" / "vega_sr"
     result_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
     parent_timeout_sec = float(args.parent_timeout_sec or 0.0)
@@ -1209,7 +1209,7 @@ def run_parent(args) -> int:
         selected.append(row)
     pd.DataFrame(selected).to_csv(out_dir / "selected_high_dimensional_interference_cases.csv", index=False)
     manifest = {
-        "method": "vl_loopsr",
+        "method": "vega_sr",
         "experiment": "high_dimensional_interference",
         "n_cases": len(cases),
         "dimensions": [200, 500, 1000],
@@ -1224,7 +1224,7 @@ def run_parent(args) -> int:
         "prefilter_top_features": int(args.prefilter_top_features or 0),
         "v11_path": str(args.v11_path),
     }
-    (out_dir / "manifest_high_dimensional_interference_vl_loopsr.json").write_text(
+    (out_dir / "manifest_high_dimensional_interference_vega_sr.json").write_text(
         json.dumps(json_safe(manifest), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -1320,7 +1320,7 @@ def run_parent(args) -> int:
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--out-dir", default=str(ROOT / "reports" / "v11_high_dimensional_interference"))
+    parser.add_argument("--out-dir", default=str(ROOT / "reports" / "vega_sr_high_dimensional_interference"))
     parser.add_argument("--v11-path", default=str(DEFAULT_V11_PATH))
     parser.add_argument("--case-budget-sec", type=float, default=900.0)
     parser.add_argument("--timeout-grace-sec", type=float, default=30.0)

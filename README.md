@@ -1,110 +1,103 @@
-# VL-LoopSR Reproducibility Package
+# VEGA-SR
 
-This repository contains the public, minimal code and data needed to reproduce
-the VL-LoopSR symbolic-regression experiments. It is arranged around six
-paper-aligned experiment launchers and uses repository-relative paths by
-default, so it can be cloned and run on a new machine without editing source
-files.
+Official code and reproducibility package for *Multimodal reasoning and
+agentic evaluation enable self-refining symbolic regression*. The experiment
+matrix is audited against the current local `main.pdf` manuscript build.
 
-No API keys, private model paths, local usernames, generated logs, or local run
-outputs are committed. Runtime secrets and machine-specific paths should be set
-through environment variables or a local `.env` file.
+VEGA-SR combines multimodal evidence-guided candidate generation with
+validation-grounded agentic evaluation and feedback. The release contains the
+method, paper-aligned launchers, deterministic data generators and the complete
+10,000-example multimodal Proposer SFT corpus. Downloaded benchmarks, generated
+splits, model weights and results remain outside Git.
 
-## Quick Start
+## Install
 
 ```bash
-git clone <this-repository-url>
-cd <repo>
-
+git clone https://github.com/RUCAIBox/VEGA-SR.git
+cd VEGA-SR
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# Recommended when pushing the bundled SFT images to GitHub.
-git lfs install
-
 cp .env.example .env
-# Edit .env for your OpenAI-compatible endpoint, model name, and optional
-# external benchmark paths.
-
-bash evaluation_suites/paper_experiments/scripts/launch_all_scaffolds.sh
 ```
 
-The scaffold command creates the six experiment result/log directories and
-checks that the launch layer is wired correctly. It does not start expensive
-runs unless the relevant `LAUNCH_*` environment variables are enabled.
+Edit `.env` with the OpenAI-compatible endpoint and model used by the agents.
+Some baselines require their own upstream environment; the paper reports those
+versions separately rather than forcing incompatible packages into one Python
+environment. Verified versions are recorded in
+[`software_versions.yaml`](evaluation_suites/paper_experiments/configs/software_versions.yaml).
 
-## Repository Layout
-
-- `evaluation_suites/paper_experiments/`: main public experiment entry point.
-- `scripts/`: lower-level runners used by the six paper launchers.
-- `llms/` and `tools/`: core VL-LoopSR runtime modules.
-- `data/`: generated datasets and cached public benchmark assets included with
-  this package, including the complete 10,000-example Proposer SFT data under
-  `data/proposer_sft/raw_10k/`.
-- `pmlb/`, `srsd-benchmark/`, `external_repos/deep-symbolic-optimization/`:
-  trimmed public dependencies used by benchmark wrappers and baselines.
-
-## Configuration
-
-Copy `.env.example` to `.env` and edit local values. Important variables:
-
-- `LLMSR_AGENT_API_BASE`: OpenAI-compatible endpoint, for example a local vLLM
-  server.
-- `LLMSR_AGENT_API_KEY`: API key for that endpoint. Use `EMPTY` for local vLLM
-  servers that do not enforce authentication.
-- `LLMSR_AGENT_MODEL`: model identifier served by the endpoint.
-- `LLMSRBENCH_ROOT` and `LLMSRBENCH_HDF5`: optional local LLMSRBench download
-  paths. LLMSRBench numeric arrays are not bundled here.
-- `HF_HOME`: local Hugging Face cache directory for SLDBench downloads.
-
-The code defaults to `runs/`, `logs/`, and `.cache/` under the repository root.
-These directories are ignored by Git.
-
-## Running Experiments
-
-Main scaffold:
+## Paper experiments
 
 ```bash
-bash evaluation_suites/paper_experiments/scripts/launch_all_scaffolds.sh my_run
+bash run_experiment.sh list
+bash run_experiment.sh prepare all
+
+# Two-case wiring check.
+RUN_OURS=1 MAX_CASES=2 bash run_experiment.sh 01 smoke
+
+# Main-paper examples.
+RUN_OURS=1 bash run_experiment.sh 02 ood_main
+RUN_OURS=1 bash run_experiment.sh 05 multimodal_main
+RUN_OURS=1 bash run_experiment.sh 06 agentic_main
 ```
 
-Run selected suites by enabling their flags:
+| ID | Paper result | Analysis unit |
+|---|---|---:|
+| 01 | Fig. 2 standard recovery | 895 tasks |
+| 02 | Fig. 3a Constructed62 OOD extrapolation | 62 tasks |
+| 03 | Fig. 3b–c high-dimensional distractors | 216 tasks |
+| 04 | Fig. 3d NoiseSR-20 robustness | 180 tasks |
+| 05 | Fig. 4 numeric-only versus numeric + image | 96 paired tasks |
+| 06 | Fig. 5 initial-only versus agentic evaluation | 96 paired tasks |
+| 07 | Fig. 6 post-hoc candidate coverage | 895 tasks per method |
+
+All constants are fitted on fitting data, candidates are selected on validation
+data, and test/OOD data are reserved for final reporting. Ground-truth
+expressions are never supplied during inference. Exact task counts, metrics and
+budgets are recorded in
+[`experiment_matrix.yaml`](evaluation_suites/paper_experiments/configs/experiment_matrix.yaml).
+
+## SFT corpus and supplementary analyses
+
+The complete paper corpus is in `data/proposer_sft/`: 5,000 candidate-generation
+examples and 5,000 matched refinement examples, with 10,000 images and 5,000
+CSV files. The two asset archives use Git LFS.
 
 ```bash
-source .env
-LAUNCH_VL_LOOPSR=1 \
-bash evaluation_suites/paper_experiments/scripts/launch_02_extrapolation.sh ood_run
+git lfs install
+git lfs pull
+bash run_experiment.sh prepare sft
+bash run_experiment.sh train-sft
 
-LAUNCH_ABLATION=1 \
-bash evaluation_suites/paper_experiments/scripts/launch_06_component_ablation.sh ablation_run
+# Paper supplement analyses.
+bash run_experiment.sh supp-sft
+bash run_experiment.sh supp-ablation
 ```
 
-For the full six-suite workflow, see
-`evaluation_suites/paper_experiments/README.md`.
+The SFT before–after result in the paper is a descriptive archived comparison:
+the intended matched SFT-side run was incomplete, so it must not be interpreted
+as a checkpoint-only causal estimate.
 
-## Reproducibility Notes
+## Layout
 
-- Random seeds and per-case budgets are documented in
-  `evaluation_suites/paper_experiments/configs/experiment_matrix.yaml`.
-- Noise robustness and component-ablation manifests are included under `data/`.
-- The complete Proposer SFT training package is included under
-  `data/proposer_sft/raw_10k/`.
-- SFT images are marked for Git LFS in `.gitattributes`; install Git LFS before
-  adding and pushing them.
-- SLDBench is loaded through Hugging Face `datasets`.
-- LLMSRBench requires a local copy of its parquet metadata and HDF5 arrays.
-- API credentials, model weights, private adapters, logs, generated reports, and
-  run outputs should remain local and are covered by `.gitignore`.
+- `scripts/vega_sr.py`: canonical public VEGA-SR method entry point.
+- `scripts/vl_loopsr.py`: compatibility entry point retained for archived runs.
+- `evaluation_suites/paper_experiments/`: paper-aligned launchers and protocol.
+- `scripts/prepare_data.py`: pinned benchmark downloads and generated suites.
+- `data/proposer_sft/`: complete multimodal SFT corpus tracked with Git LFS.
+- `runs/` and `logs/`: ignored local outputs.
 
-## Public Release Checklist
+The existing `LLMSR_*` environment-variable prefix is retained for backward
+compatibility with archived experiment manifests.
 
-Before pushing to GitHub:
+## Validation before release
 
 ```bash
-gitleaks detect --no-git --source .  # or your preferred secret scanner
-bash -n evaluation_suites/paper_experiments/scripts/*.sh scripts/*.sh
+bash -n run_experiment.sh evaluation_suites/paper_experiments/scripts/*.sh scripts/*.sh
 python3 -m py_compile scripts/*.py tools/*.py llms/*.py llms/tasks/*.py
-pip install -r requirements-dev.txt
 pytest -q
 ```
+
+Do not commit `.env`, model weights, downloaded datasets, generated splits,
+logs or results. Add the project license before making the repository public.

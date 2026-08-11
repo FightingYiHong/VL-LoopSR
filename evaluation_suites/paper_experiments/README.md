@@ -1,105 +1,58 @@
-# VL-LoopSR Paper Experiment Suite
+# Paper experiments
 
-This directory is the paper-facing entry point for the six VL-LoopSR
-experiments. It keeps manuscript experiments separate so that runs, source data,
-and baseline configs do not get mixed with older exploratory scripts.
+These launchers implement the protocols in the current `main.pdf`. They use
+fitting data for constant estimation, validation data for model selection and
+held-out test/OOD data only for reporting.
 
-## Experiment Layout
+## Main-text analyses
 
-1. `01_standard_recovery`
-   - Paper figure: Fig. 2.
-   - Question: compact formula recovery across heterogeneous benchmarks.
-   - Benchmarks: LLMSRBench (240), SLDBench (77), SRBench/Feynman (417), SRSD
-     (238), for 972 tasks.
-   - Primary readouts: numerical complete fit, strict/SRBench recovery,
-     MSE/RMSE/NMSE/NRMSE, expression-tree nodes and runtime. PASS@100 remains
-     a legacy compatibility field.
-   - Search-efficiency readout: first actual candidate evaluation reaching
-     validation R2 > 0.999; non-hits are retained as right-censored cases.
+| Command | Figure | Experiment | Cases | Default budget |
+|---|---|---|---:|---:|
+| `01` | Fig. 2 | LLMSRBench 240 + SRBench/Feynman 417 + SRSD 238 | 895 | method-specific |
+| `02` | Fig. 3a | Constructed62 OOD extrapolation | 62 | method-specific |
+| `03` | Fig. 3b–c | 24 formulas × 3 dimensions × 3 distractor regimes | 216 | VEGA-SR 900 s |
+| `04` | Fig. 3d | 20 formulas × 3 noise levels × 3 seeds | 180 | 100 s |
+| `05` | Fig. 4 | Numeric-only versus numeric + one image | 96 paired | 90 s |
+| `06` | Fig. 5 | Initial evaluation versus complete agentic loop | 96 paired | 600 s |
+| `07` | Fig. 6 | Stored-candidate coverage at budgets 1–100 | 895/method | post-hoc |
 
-2. `02_extrapolation`
-   - Paper figure: Fig. 3.
-   - Question: whether selected equations remain accurate outside the observed
-     input range.
-   - Benchmarks: Constructed62 and SurfaceBench40.
-   - Primary readouts: raw R2/NMSE, ID/OOD shift, negative-R2 and non-finite
-     rates, plus range-expansion diagnostics.
-
-3. `03_high_dimensional_distractors`
-   - Paper figure: Fig. 4.
-   - Question: sparse active-variable identification under irrelevant variables,
-     correlated proxies, and nonlinear decoys.
-   - Construction: 24 formulas x dimensions 200/500/1000 x three distractor
-     regimes = 216 tasks.
-   - Primary readouts: exact support recovery, recall/precision, FDR,
-     irrelevant-variable FPR, test error and runtime.
-
-4. `04_proposer_sft`
-   - Paper figure: Fig. 5.
-   - Question: whether task-specific Proposer SFT improves proposal and repair
-     behavior with the Evaluator and selector fixed.
-   - Dataset: the same 972-task benchmark family before and after Proposer SFT.
-   - Primary readouts: candidate count, recovered-case MSE, repair utility,
-     runtime, timeout behavior.
-
-5. `05_noise_robustness`
-   - Paper figure: Fig. 6.
-   - Question: whether symbolic skeletons remain compact and stable under noisy
-     fitting/validation targets.
-   - Dataset: NoiseRobust-Metric v2, 20 formulas x noise levels
-     0/0.001/0.01/0.1 x five seeds = 400 tasks.
-   - Primary readouts: numerical complete fit, strict/SRBench and skeleton
-     recovery, clean-test MSE/RMSE/NMSE/NRMSE, complexity and runtime.
-
-6. `06_component_ablation`
-   - Paper figure: Fig. 7.
-   - Question: which loop functions causally support recovery.
-   - Dataset: matched balanced 96-task component-ablation suite.
-   - Variants: full, w/o Observer, w/o Critic, w/o Proposer.
-   - Primary readouts: mean/median test MSE, MSE < 1, active-variable recall,
-     proxy misuse, valid-expression count, loop trajectory.
-
-## Code Map
-
-- VL-LoopSR core method: `scripts/test_fey_v11_complexity_exact.py`.
-- Standard recovery launch backbone: `scripts/launch_v11_enhanced_300s.sh` and
-  official baseline wrappers under `evaluation_suites/*_fourbench`.
-- OOD runner: `scripts/run_v11_extrapolation_suites.py`.
-- High-dimensional runner: `scripts/run_v11_high_dimensional_interference.py`.
-- High-dimensional baselines: `scripts/run_highdim_interference_baselines.py`
-  and `scripts/run_highdim_llm_baselines.py`.
-- SFT comparison: `scripts/launch_v11_sft_before_after_main_100s.sh` and
-  `scripts/summarize_v11_sft_before_after.py`.
-- Noise runner and baselines: `scripts/run_v11_noise_robustness.py`,
-  `scripts/run_noise_robustness_baselines.py`.
-- Component ablation: `scripts/generate_v11_balanced_ablation_dataset.py` and
-  `scripts/run_v11_ablation_experiments.py`.
-## Data Map
-
-- Noise default manifest: `data/noise_robustness_metric_v2/manifest.csv`.
-- Noise split files: `data/noise_robustness_metric_v2/splits`.
-- SurfaceBench public cache: `data/surfacebench_public`.
-- Balanced component ablation data is generated on demand at
-  `data/v11_balanced_component_ablation_96`.
-- Public benchmark dependencies are kept in `pmlb/`, `srsd-benchmark/`, and the
-  external baseline repositories.
-
-## Launching
-
-Each launcher accepts an optional run id. By default it resolves the repository
-root from the launcher path and writes to:
-
-- `${RESULTS_ROOT:-<repo>/runs/paper_experiments/<suite>/<run_id>}`
-- `${LOG_ROOT:-<repo>/logs/paper_experiments/<suite>/<run_id>}`
-
-Set `ROOT_DIR`, `RESULTS_ROOT`, or `LOG_ROOT` to target a custom machine layout.
-
-Run the paper-aligned scaffold:
+Run from the repository root:
 
 ```bash
-bash evaluation_suites/paper_experiments/scripts/launch_all_scaffolds.sh
+cp .env.example .env
+bash run_experiment.sh prepare all
+bash run_experiment.sh list
+
+RUN_OURS=1 MAX_CASES=2 bash run_experiment.sh 01 smoke
+RUN_OURS=1 bash run_experiment.sh 02 ood_main
+RUN_BASELINES=1 bash run_experiment.sh 04 noise_baselines
+RUN_MULTIMODAL=1 bash run_experiment.sh 05 multimodal_main
+RUN_AGENTIC=1 bash run_experiment.sh 06 agentic_main
 ```
 
-Use environment flags such as `LAUNCH_VL_LOOPSR=0`, `LAUNCH_BASELINES=1`, or
-`ONLY_SUMMARIZE=1` to control expensive runs.  The launchers default to the
-manuscript protocol and avoid older exploratory PASS@300/noise-level settings.
+Expensive methods default to disabled. `MAX_CASES` is a wiring-check option;
+zero selects the complete suite. Results are written to
+`runs/paper_experiments/<suite>/<run_id>` and logs to the corresponding
+`logs/paper_experiments/` directory.
+
+The Fig. 6 coverage analysis does not use test scores during search. It reads
+stored candidates after all runs, evaluates them on held-out test data and
+records the first candidate with test R2 > 0.999. Its input schema is documented
+by `scripts/summarize_candidate_coverage.py --help`.
+
+## Supplementary analyses
+
+```bash
+bash run_experiment.sh supp-sft
+bash run_experiment.sh supp-ablation
+```
+
+`supp-sft` summarizes the 895-pair base/SFT archive. It is intentionally
+labelled descriptive because the intended matched SFT-side run was incomplete.
+`supp-ablation` runs the full, no-Observer, no-Critic and no-Proposer variants
+on the balanced 96-task suite.
+
+External baseline repositories are downloaded or installed separately and
+remain under ignored paths. The complete 10,000-example Proposer corpus is the
+one bundled-data exception; `bash run_experiment.sh train-sft` reproduces the
+paper's 4-bit QLoRA configuration after LLaMA-Factory is installed.

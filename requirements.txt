@@ -1,6 +1,7 @@
 openai
 requests
 transformers
+huggingface-hub
 torch
 numpy
 pandas
@@ -13,3 +14,4 @@ h5py
 matplotlib
 seaborn
 PyYAML
+pmlb

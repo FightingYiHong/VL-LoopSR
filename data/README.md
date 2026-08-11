@@ -1,41 +1,21 @@
-# Data Directory
+# Data
 
-This directory contains generated datasets and public benchmark assets used by
-the current paper launchers.
+Public benchmarks and deterministic stress-test splits are prepared locally;
+the paper's Proposer SFT corpus is the deliberate bundled-data exception and
+uses Git LFS.
 
-## Included
+```bash
+bash run_experiment.sh prepare all
+```
 
-- `noise_robustness_metric_v2/`
-  - Current NoiseRobust-Metric manifest and split files.
-  - 20 formulas x 4 noise levels x 5 seeds = 400 tasks.
+- `external/`: pinned LLMSRBench, SRBench and SRSD sources for the 895-task
+  standard-recovery schedule.
+- `generated/noise_sr_20/`: 20 formulas × 3 noise levels × 3 seeds = 180 tasks.
+- `generated/balanced_interference_96/`: the shared 96-task suite used for the
+  multimodal, agentic-evaluation and component-ablation comparisons.
+- `proposer_sft/`: bundled 10,000-example corpus with 10,000 images and 5,000
+  task CSV files.
 
-- `noise_robustness_smallrange_v1/`
-  - Legacy NoiseRobust-SmallRange manifest retained for comparison.
-  - 20 formulas x 3 noise levels x 3 seeds = 180 tasks.
-
-- `noise_robustness_v1_20/`
-  - Split files referenced by `noise_robustness_smallrange_v1/manifest.csv`.
-
-- `surfacebench_public/`
-  - SurfaceBench40 cache used by the OOD extrapolation suite.
-
-- `v11_balanced_component_ablation_96/`
-  - Matched 96-task component-ablation suite.
-
-- `proposer_sft/`
-  - Complete synthetic 10,000-example multimodal Proposer SFT package.
-  - Includes 5,000 1D, 3,000 2D/surface, and 2,000 high-dimensional examples
-    with relative image and CSV paths.
-
-- `vega_sr_claim_validation_v1/`
-  - Frozen inputs used by the VEGA-SR claim-validation workflow.
-
-## Not Included
-
-- `data/llmsrbench/`
-  - Optional location for a local LLMSRBench download.
-  - Set `LLMSRBENCH_ROOT` and `LLMSRBENCH_HDF5` in `.env` if you store the
-    benchmark elsewhere.
-
-Generated results, logs, temporary caches, private model weights, and downloaded
-large external datasets should stay out of Git.
+Constructed62 is generated deterministically by its runner. Third-party method
+checkouts remain external inputs configured through `.env`. Preparation never
+overwrites a non-empty benchmark checkout or an existing generated suite.

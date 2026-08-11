@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Run V11 on controlled and public extrapolation splits."""
+"""Run VEGA-SR on the paper's Constructed62 extrapolation benchmark."""
 
 from __future__ import annotations
 
@@ -30,11 +30,7 @@ from benchmark_metrics import (
     regression_metrics,
 )
 from run_strict_extrapolation_cpu_baselines import json_safe, make_split
-from run_surfacebench_strict_cpu_baselines import list_surface_cases, load_surface_split
-
-
-DEFAULT_V11_PATH = ROOT / "scripts" / "test_fey_v11_complexity_exact.py"
-DEFAULT_SURFACEBENCH_PATH = ROOT / "data" / "surfacebench_public" / "dataset.h5"
+DEFAULT_V11_PATH = ROOT / "scripts" / "vega_sr.py"
 
 
 def sanitize_name(text: str) -> str:
@@ -100,6 +96,7 @@ def controlled_cases(max_cases: int | None):
                 "case_name": case.case_name,
                 "benchmark": case.benchmark,
                 "structure_type": case.structure_type,
+                "n_features": case.n_features,
                 "train_range": case.train_range_label,
                 "test_range": case.test_range_label,
             }
@@ -107,63 +104,23 @@ def controlled_cases(max_cases: int | None):
     return out
 
 
-def surface_cases(path: Path, max_cases: int | None):
-    cases = list_surface_cases(path, max_cases=max_cases)
-    out = []
-    for idx, case in enumerate(cases, start=1):
-        row = dict(case)
-        row.update(
-            {
-                "suite": "surfacebench_public_ood",
-                "case_index": idx,
-                "benchmark": "SurfaceBench",
-                "structure_type": "",
-                "train_range": "SurfaceBench train_data",
-                "test_range": "SurfaceBench ood_test",
-            }
-        )
-        out.append(row)
-    return out
-
-
 def load_case_split(args):
-    if args.suite == "constructed":
-        case, train_df, val_df, test_df, meta = make_split(
-            args.case_index - 1,
-            args.repeat_seed,
-            args.n_train,
-            args.n_val,
-            args.n_test,
-        )
-        row_meta = {
-            "task_type": "constructed_extrapolation",
-            "dataset_dir": "constructed_extrapolation",
-            "difficulty": meta["benchmark"],
-            "base_name": meta["case_name"],
-            "true_expression": None,
-            **meta,
-        }
-        return train_df, val_df, test_df, row_meta, case
-
-    cases = list_surface_cases(Path(args.surfacebench_path), max_cases=args.max_cases)
-    case = cases[args.case_index - 1]
-    train_df, val_df, test_df, meta = load_surface_split(
-        Path(args.surfacebench_path),
-        case,
+    case, train_df, val_df, test_df, meta = make_split(
+        args.case_index - 1,
+        args.repeat_seed,
         args.n_train,
         args.n_val,
         args.n_test,
-        args.random_state + args.case_index * 100 + args.repeat_seed,
     )
     row_meta = {
-        "task_type": "surfacebench_public_ood",
-        "dataset_dir": "surfacebench_public_ood",
-        "difficulty": meta["category"],
+        "task_type": "constructed_extrapolation",
+        "dataset_dir": "constructed_extrapolation",
+        "difficulty": meta["benchmark"],
         "base_name": meta["case_name"],
         "true_expression": None,
         **meta,
     }
-    return train_df, val_df, test_df, row_meta, None
+    return train_df, val_df, test_df, row_meta, case
 
 
 def evaluate_range_expansions(case, train_df, expression, factors, n_samples, seed):
@@ -211,7 +168,7 @@ def run_child(args) -> int:
         out.update(row_meta)
         out.update(
             {
-                "method": "vl_loopsr",
+                "method": "vega_sr",
                 "suite": args.suite,
                 "case_index": int(args.case_index),
                 "repeat_seed": int(args.repeat_seed),
@@ -276,7 +233,7 @@ def run_child(args) -> int:
             out["expr_complexity"] = expr_complexity(out.get("best_expr"))
     except BaseException as exc:
         out = {
-            "method": "vl_loopsr",
+            "method": "vega_sr",
             "suite": args.suite,
             "case_index": int(args.case_index),
             "repeat_seed": int(args.repeat_seed),
@@ -302,7 +259,7 @@ def run_child(args) -> int:
 def timeout_row(args, case: dict, runtime_sec: float, log_path: Path, parent_timeout_sec: float | None = None):
     outer_timeout = float(parent_timeout_sec) if parent_timeout_sec else float(args.case_budget_sec) + float(args.timeout_grace_sec)
     return {
-        "method": "vl_loopsr",
+        "method": "vega_sr",
         "suite": args.suite,
         "case_index": int(case["case_index"]),
         "case_name": case.get("case_name"),
@@ -353,8 +310,8 @@ def summarize(rows: list[dict], out_dir: Path, suite: str):
     ]:
         if column not in df:
             df[column] = np.nan
-    df.to_csv(out_dir / f"all_{suite}_vl_loopsr_strict_results.csv", index=False)
-    group_cols = ["benchmark", "method"] if suite == "constructed" else ["difficulty", "method"]
+    df.to_csv(out_dir / f"all_{suite}_vega_sr_strict_results.csv", index=False)
+    group_cols = ["benchmark", "method"]
     for col in group_cols:
         if col not in df:
             df[col] = ""
@@ -380,7 +337,7 @@ def summarize(rows: list[dict], out_dir: Path, suite: str):
         )
         .reset_index()
     )
-    summary.to_csv(out_dir / f"summary_{suite}_vl_loopsr_strict.csv", index=False)
+    summary.to_csv(out_dir / f"summary_{suite}_vega_sr_strict.csv", index=False)
     range_columns = sorted(
         column
         for column in df.columns
@@ -400,28 +357,27 @@ def summarize(rows: list[dict], out_dir: Path, suite: str):
 
 def run_parent(args) -> int:
     out_dir = Path(args.out_dir)
-    result_dir = out_dir / "case_results" / "vl_loopsr"
-    log_dir = out_dir / "case_logs" / "vl_loopsr"
+    result_dir = out_dir / "case_results" / "vega_sr"
+    log_dir = out_dir / "case_logs" / "vega_sr"
     result_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
     parent_timeout_sec = float(args.parent_timeout_sec or 0.0)
     if parent_timeout_sec <= 0:
         parent_timeout_sec = float(args.case_budget_sec) + float(args.timeout_grace_sec)
 
-    cases = controlled_cases(args.max_cases) if args.suite == "constructed" else surface_cases(Path(args.surfacebench_path), args.max_cases)
+    cases = controlled_cases(args.max_cases)
     pd.DataFrame(cases).to_csv(out_dir / "selected_cases.csv", index=False)
     manifest = {
-        "method": "vl_loopsr",
+        "method": "vega_sr",
         "suite": args.suite,
         "n_cases": len(cases),
         "case_budget_sec": float(args.case_budget_sec),
         "timeout_grace_sec": float(args.timeout_grace_sec),
         "parent_timeout_sec": float(parent_timeout_sec),
         "v11_path": str(args.v11_path),
-        "surfacebench_path": str(args.surfacebench_path) if args.suite == "surfacebench" else None,
-        "range_expansion_factors": args.expansion_factors if args.suite == "constructed" else None,
+        "range_expansion_factors": args.expansion_factors,
     }
-    (out_dir / "manifest_vl_loopsr.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out_dir / "manifest_vega_sr.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     rows = []
     for case in cases:
@@ -470,13 +426,11 @@ def run_parent(args) -> int:
             str(args.max_cases or 0),
             "--random-state",
             str(args.random_state),
-            "--surfacebench-path",
-            str(args.surfacebench_path),
             "--single-result-json",
             str(result_json),
         ]
         started = time.time()
-        print(f"[RUN {idx}/{len(cases)}] vl_loopsr {case.get('case_name')}", flush=True)
+        print(f"[RUN {idx}/{len(cases)}] vega_sr {case.get('case_name')}", flush=True)
         child_env = os.environ.copy()
         child_env.setdefault("PYTHONUNBUFFERED", "1")
         with open(log_path, "w", encoding="utf-8") as log_fp:
@@ -517,10 +471,9 @@ def run_parent(args) -> int:
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--suite", choices=["constructed", "surfacebench"], required=True)
+    parser.add_argument("--suite", choices=["constructed"], required=True)
     parser.add_argument("--out-dir", required=True)
     parser.add_argument("--v11-path", default=str(DEFAULT_V11_PATH))
-    parser.add_argument("--surfacebench-path", default=str(DEFAULT_SURFACEBENCH_PATH))
     parser.add_argument("--case-budget-sec", type=float, default=100.0)
     parser.add_argument("--timeout-grace-sec", type=float, default=15.0)
     parser.add_argument("--parent-timeout-sec", type=float, default=0.0)

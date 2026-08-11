@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Run SRBench with StructPlan-SR v10/test_fey.
+Run SRBench with VEGA-SR.
 
 Core idea:
   SRBench is used only as the dataset/task provider.
-  The actual solver is delegated to test_fey.py (or another compatible v10
+  The actual solver is delegated to vega_sr.py (or another compatible
   file) via:
     build_dataset_from_explicit_splits(...)
     _run_core_pipeline(...)
@@ -20,7 +20,7 @@ Supported SRBench sources:
   - Remote fallback through pmlb.fetch_data(...)
 
 This wrapper keeps the benchmark logic outside the solver so we can reuse the
-same core pipeline as SLDBench / LLM-SRBench.
+same core pipeline as LLMSRBench and SRSD.
 """
 
 import os
@@ -46,9 +46,6 @@ warnings.filterwarnings("ignore")
 # =========================================================
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
-PMLB_SOURCE_ROOT = PROJECT_ROOT / "pmlb"
-if PMLB_SOURCE_ROOT.exists():
-    sys.path.insert(0, str(PMLB_SOURCE_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(SCRIPT_DIR))
 
@@ -56,14 +53,14 @@ from benchmark_metrics import enrich_result_metrics
 
 V10_PATH = Path(os.environ.get(
     "SRBENCH_V10_PATH",
-    os.environ.get("LLMSR_V10_PATH", str(SCRIPT_DIR / "test_fey.py")),
+    os.environ.get("LLMSR_V10_PATH", str(SCRIPT_DIR / "vega_sr.py")),
 )).resolve()
 
 
 # =========================================================
 # SRBench config
 # =========================================================
-SRBENCH_ROOT = os.environ.get("SRBENCH_ROOT", str(PROJECT_ROOT / "srbench"))
+SRBENCH_ROOT = os.environ.get("SRBENCH_ROOT", str(PROJECT_ROOT / "data" / "external" / "srbench"))
 SRBENCH_DATASETS_INFO_CSV = os.environ.get(
     "SRBENCH_DATASETS_INFO_CSV",
     os.path.join(SRBENCH_ROOT, "docs", "csv", "datasets_info.csv"),
@@ -121,8 +118,8 @@ PERFECT_FIT_TOL = float(os.environ.get("SRBENCH_PERFECT_FIT_TOL", "1e-10"))
 def import_v10_module():
     if not V10_PATH.exists():
         raise FileNotFoundError(
-            f"Cannot find v10 file: {V10_PATH}\n"
-            "Set SRBENCH_V10_PATH or LLMSR_V10_PATH to the actual v10 python file."
+            f"Cannot find VEGA-SR entry point: {V10_PATH}\n"
+            "Set SRBENCH_V10_PATH or LLMSR_V10_PATH to a compatible Python file."
         )
 
     spec = importlib.util.spec_from_file_location("srbench_v10_runtime", str(V10_PATH))

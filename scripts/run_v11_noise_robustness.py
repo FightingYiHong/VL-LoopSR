@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Run the VL-LoopSR pipeline on controlled target-noise robustness tasks.
+"""Run the VEGA-SR pipeline on controlled target-noise robustness tasks.
 
 This is the V11-backed version of the Fig.5 experiment in the design table:
 
@@ -53,7 +53,7 @@ from scripts.benchmark_metrics import (
     strict_formula_recovery,
 )
 
-DEFAULT_V11_PATH = ROOT / "scripts" / "test_fey_v11_complexity_exact.py"
+DEFAULT_V11_PATH = ROOT / "scripts" / "vega_sr.py"
 PASS_MSE_THRESHOLD = 100.0
 EXACT_CLEAN_MSE_THRESHOLD = 1e-8
 SKELETON_CLEAN_MSE_THRESHOLD = 1e-3
@@ -949,7 +949,7 @@ def run_child(args) -> int:
         out = {
             **result,
             **row_meta,
-            "method": "vl_loopsr",
+            "method": "vega_sr",
             "case_index": int(case.case_index),
             "repeat_seed": case_repeat_seed(case, args.repeat_seed),
             "budget_sec": float(args.case_budget_sec),
@@ -965,7 +965,7 @@ def run_child(args) -> int:
     except BaseException as exc:
         case_meta = asdict(case)
         out = {
-            "method": "vl_loopsr",
+            "method": "vega_sr",
             "case_index": int(args.case_index),
             "case_name": case_meta.get("case_name"),
             "base_case_name": case_meta.get("base_case_name"),
@@ -1005,7 +1005,7 @@ def run_child(args) -> int:
 
 def timeout_row(args, case: NoiseCase, repeat_seed: int, runtime_sec: float, log_path: Path, parent_timeout_sec: float):
     return {
-        "method": "vl_loopsr",
+        "method": "vega_sr",
         "case_index": int(case.case_index),
         "case_name": case.case_name,
         "base_case_name": case.base_case_name,
@@ -1071,7 +1071,7 @@ def summarize(rows: list[dict], out_dir: Path):
     ]:
         if column not in df:
             df[column] = np.nan
-    df.to_csv(out_dir / "all_noise_robustness_vl_loopsr_results.csv", index=False)
+    df.to_csv(out_dir / "all_noise_robustness_vega_sr_results.csv", index=False)
 
     summary = (
         df.groupby(["noise_level", "benchmark", "method"], dropna=False)
@@ -1097,7 +1097,7 @@ def summarize(rows: list[dict], out_dir: Path):
         )
         .reset_index()
     )
-    summary.to_csv(out_dir / "summary_noise_robustness_vl_loopsr.csv", index=False)
+    summary.to_csv(out_dir / "summary_noise_robustness_vega_sr.csv", index=False)
 
     by_method = (
         df.groupby(["noise_level", "method"], dropna=False)
@@ -1122,7 +1122,7 @@ def summarize(rows: list[dict], out_dir: Path):
         )
         .reset_index()
     )
-    by_method.to_csv(out_dir / "summary_noise_robustness_by_noise_vl_loopsr.csv", index=False)
+    by_method.to_csv(out_dir / "summary_noise_robustness_by_noise_vega_sr.csv", index=False)
     plot_figures(df, by_method, out_dir)
     write_design_doc(out_dir, by_method)
 
@@ -1264,14 +1264,14 @@ def write_design_doc(out_dir: Path, by_noise: pd.DataFrame):
     lines = [
         "# V11 Noise Robustness Experiment",
         "",
-        "Base method: `scripts/test_fey_v11_complexity_exact.py` (V11).",
+        "Base method: `scripts/vega_sr.py`.",
         "",
         "Design:",
         "",
         "- Benchmarks: Nguyen, Feynman, SRSD, and a small realistic smooth-signal group.",
         "- Noise levels: relative Gaussian target noise on train/val only; clean test target is held out for recovery scoring.",
         "- Default levels: `0,0.001,0.01`.",
-        "- V11 receives no true expression or true-variable metadata; those are used only after each run for scoring.",
+        "- VEGA-SR receives no true expression or true-variable metadata; those are used only after each run for scoring.",
         "",
         "Metrics:",
         "",
@@ -1302,8 +1302,8 @@ def parse_benchmark_filter(text: str | None) -> set[str] | None:
 
 def run_parent(args) -> int:
     out_dir = Path(args.out_dir)
-    result_dir = out_dir / "case_results" / "vl_loopsr"
-    log_dir = out_dir / "case_logs" / "vl_loopsr"
+    result_dir = out_dir / "case_results" / "vega_sr"
+    log_dir = out_dir / "case_logs" / "vega_sr"
     result_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
     parent_timeout_sec = float(args.parent_timeout_sec or 0.0)
@@ -1326,7 +1326,7 @@ def run_parent(args) -> int:
     pd.DataFrame(selected).to_csv(out_dir / "selected_noise_robustness_cases.csv", index=False)
 
     manifest = {
-        "method": "vl_loopsr",
+        "method": "vega_sr",
         "experiment": "noise_robustness",
         "n_cases": len(cases),
         "repeat_seeds": int(repeat_seeds),
@@ -1344,7 +1344,7 @@ def run_parent(args) -> int:
         "noise_v11_profile_sec": os.environ.get("LLMSR_NOISE_V11_PROFILE_SEC", ""),
         "noise_protocol": "train/val y noisy, test y clean",
     }
-    (out_dir / "manifest_noise_robustness_vl_loopsr.json").write_text(
+    (out_dir / "manifest_noise_robustness_vega_sr.json").write_text(
         json.dumps(json_safe(manifest), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -1455,13 +1455,13 @@ def run_parent(args) -> int:
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--out-dir", default=str(ROOT / "reports" / "v11_noise_robustness"))
+    parser.add_argument("--out-dir", default=str(ROOT / "reports" / "vega_sr_noise_robustness"))
     parser.add_argument("--v11-path", default=str(DEFAULT_V11_PATH))
     parser.add_argument("--case-budget-sec", type=float, default=300.0)
     parser.add_argument("--timeout-grace-sec", type=float, default=30.0)
     parser.add_argument("--parent-timeout-sec", type=float, default=0.0)
     parser.add_argument("--max-cases", type=int, default=0)
-    parser.add_argument("--noise-levels", default="0,0.001,0.01,0.1")
+    parser.add_argument("--noise-levels", default="0,0.001,0.01")
     parser.add_argument("--dataset-manifest", default="", help="Optional fixed NoiseRobust-SR manifest.csv to read instead of generating splits.")
     parser.add_argument("--benchmarks", default=None, help="Optional comma-separated filter: Nguyen,Feynman,SRSD,Realistic.")
     parser.add_argument("--n-train", type=int, default=512)

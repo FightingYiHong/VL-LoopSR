@@ -1,5 +1,6 @@
 # Normalize text files for reproducible diffs across platforms.
 * text=auto eol=lf
 
-# Large binary SFT assets.
-data/proposer_sft/**/*.png filter=lfs diff=lfs merge=lfs -text
+# The paper's 10k multimodal SFT assets stay in this repository via Git LFS.
+data/proposer_sft/images.tar filter=lfs diff=lfs merge=lfs -text
+data/proposer_sft/csv.tar filter=lfs diff=lfs merge=lfs -text

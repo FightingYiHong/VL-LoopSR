@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Run SRSD with StructPlan-SR v10/test_fey.
+Run SRSD with VEGA-SR.
 
 Core idea:
   SRSD is used only as the task/data provider.
-  The actual solver is delegated to test_fey.py (or another compatible v10
+  The actual solver is delegated to vega_sr.py (or another compatible
   file) via:
     build_dataset_from_explicit_splits(...)
     _run_core_pipeline(...)
@@ -46,7 +46,7 @@ from benchmark_metrics import enrich_result_metrics
 
 V10_PATH = Path(os.environ.get(
     "SRSD_V10_PATH",
-    os.environ.get("LLMSR_V10_PATH", str(SCRIPT_DIR / "test_fey.py")),
+    os.environ.get("LLMSR_V10_PATH", str(SCRIPT_DIR / "vega_sr.py")),
 )).resolve()
 
 
@@ -55,7 +55,7 @@ V10_PATH = Path(os.environ.get(
 # =========================================================
 SRSD_ROOT = Path(os.environ.get(
     "SRSD_ROOT",
-    str(PROJECT_ROOT / "srsd-benchmark" / "resource" / "datasets" / "srsd"),
+    str(PROJECT_ROOT / "data" / "external" / "srsd-benchmark" / "resource" / "datasets" / "srsd"),
 )).resolve()
 
 default_dataset_dirs = ",".join([
@@ -113,8 +113,8 @@ HARD_TIMEOUT_SEC = float(os.environ.get(
 def import_v10_module():
     if not V10_PATH.exists():
         raise FileNotFoundError(
-            f"Cannot find v10 file: {V10_PATH}\n"
-            "Set SRSD_V10_PATH or LLMSR_V10_PATH to the actual v10 python file."
+            f"Cannot find VEGA-SR entry point: {V10_PATH}\n"
+            "Set SRSD_V10_PATH or LLMSR_V10_PATH to a compatible Python file."
         )
 
     spec = importlib.util.spec_from_file_location("srsd_v10_runtime", str(V10_PATH))

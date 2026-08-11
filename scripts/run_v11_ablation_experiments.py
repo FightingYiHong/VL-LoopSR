@@ -44,8 +44,8 @@ from scripts.benchmark_metrics import (
     strict_formula_recovery,
 )
 
-DEFAULT_V11_PATH = ROOT / "scripts" / "test_fey_v11_complexity_exact.py"
-DEFAULT_DATASET_ROOT = ROOT / "data" / "v11_balanced_component_ablation_96"
+DEFAULT_V11_PATH = ROOT / "scripts" / "vega_sr.py"
+DEFAULT_DATASET_ROOT = ROOT / "data" / "generated" / "balanced_interference_96"
 
 PASS_MSE_THRESHOLD = 100.0
 EXACT_MSE_THRESHOLD = 1e-8
@@ -89,8 +89,9 @@ METHODS: dict[str, MethodConfig] = {
         env={
             "LLMSR_V11_ENABLE_VLM_OBSERVER": "0",
             "LLMSR_V11_VLM_OBSERVER_GENERATE_IMAGES": "0",
+            "LLMSR_V11_OBSERVER_INPUT_MODE": "numeric_only",
         },
-        description="disable the VLM Observer augmentation; keep deterministic data/plot observer",
+        description="numeric-only arm: retain deterministic numerical analysis but remove function images",
     ),
     "w_o_observer_all": MethodConfig(
         name="w_o_observer_all",
@@ -877,7 +878,7 @@ def write_design_doc(out_dir: Path, rows: pd.DataFrame, summary: pd.DataFrame):
     lines = [
         "# V11 Ablation Experiment Design",
         "",
-        "Base code: `scripts/test_fey_v11_complexity_exact.py`.",
+        "Base code: `scripts/vl_loopsr.py`.",
         "",
         "Method switches:",
         "",

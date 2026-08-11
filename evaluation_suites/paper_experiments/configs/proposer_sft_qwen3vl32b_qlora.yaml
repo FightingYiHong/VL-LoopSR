@@ -1,0 +1,53 @@
+### model
+model_name_or_path: Qwen/Qwen3-VL-32B-Instruct
+quantization_bit: 4
+quantization_method: bnb
+double_quantization: true
+image_max_pixels: 131072
+video_max_pixels: 16384
+trust_remote_code: true
+
+### method
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_rank: 16
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target: all
+
+### dataset
+dataset_dir: data/proposer_sft
+dataset: proposer_v11_sft_10000
+template: qwen3_vl_nothink
+cutoff_len: 4096
+max_samples: 10000
+preprocessing_num_workers: 8
+dataloader_num_workers: 2
+
+### output
+output_dir: saves/qwen3-vl-32b-proposer-sft-10000-qlora
+logging_steps: 5
+save_steps: 250
+plot_loss: true
+overwrite_output_dir: false
+save_only_model: false
+report_to: none
+
+### training
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 16
+learning_rate: 5.0e-5
+num_train_epochs: 2.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.03
+bf16: true
+gradient_checkpointing: true
+ddp_timeout: 180000000
+resume_from_checkpoint: null
+
+### evaluation
+val_size: 0.02
+per_device_eval_batch_size: 1
+eval_strategy: steps
+eval_steps: 250

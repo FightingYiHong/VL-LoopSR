@@ -1,0 +1,9 @@
+{
+  "examples": 10000,
+  "unique_tasks": 5000,
+  "proposal_examples": 5000,
+  "repair_examples": 5000,
+  "images": 10000,
+  "csv_files": 5000,
+  "exact_duplicate_examples": 0
+}

@@ -32,7 +32,7 @@ PROJECT_ROOT = SCRIPT_DIR.parents[1]
 OFFICIAL_ROOT = Path(
     os.environ.get(
         "OFFICIAL_ICSR_ROOT",
-        str(PROJECT_ROOT / "external_repos" / "In-Context-Symbolic-Regression"),
+        str(PROJECT_ROOT / "data" / "external" / "methods" / "In-Context-Symbolic-Regression"),
     )
 )
 
@@ -40,11 +40,11 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 import run_cpu_baseline_benchmarks as base
 
 
-BENCHMARKS = ("sldbench", "llmsrbench", "srsd", "srbench")
+BENCHMARKS = ("llmsrbench", "srsd", "srbench")
 MODEL_NAME = os.environ.get("OFFICIAL_ICSR_MODEL_NAME", "llm-baseline-qwen2.5-32b")
 OPENAI_BASE_URL = os.environ.get("OFFICIAL_ICSR_OPENAI_BASE_URL", "http://127.0.0.1:8001/v1")
 OPENAI_API_KEY = os.environ.get("OFFICIAL_ICSR_OPENAI_API_KEY", "EMPTY")
-LLMSRBENCH_ROOT = Path(os.environ.get("LLMSRBENCH_ROOT", str(PROJECT_ROOT / "data" / "llmsrbench")))
+LLMSRBENCH_ROOT = Path(os.environ.get("LLMSRBENCH_ROOT", str(PROJECT_ROOT / "data" / "external" / "llmsrbench")))
 LLMSRBENCH_HDF5 = Path(os.environ.get("LLMSRBENCH_HDF5", str(LLMSRBENCH_ROOT / "lsr_bench_data.hdf5")))
 
 # The shared benchmark loader reads these variables when it imports
@@ -947,7 +947,7 @@ def summarize(result_root: Path, benchmark: str, rows: list[dict]) -> None:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--benchmarks", default="sldbench,llmsrbench,srsd,srbench")
+    parser.add_argument("--benchmarks", default="llmsrbench,srbench,srsd")
     parser.add_argument("--results-root", required=True)
     parser.add_argument("--case-timeout-sec", type=int, default=600)
     parser.add_argument("--startup-timeout-sec", type=int, default=600)

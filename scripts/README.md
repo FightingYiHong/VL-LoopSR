@@ -1,26 +1,20 @@
-# Script Entry Points
+# Scripts
 
-Use `evaluation_suites/paper_experiments/` as the paper-facing orchestration
-layer. The scripts here are the lower-level runners and generators required by
-those launchers.
+Public entry points are intentionally limited:
 
-## Current Paper Pipeline
+- `vega_sr.py`: canonical VEGA-SR method module.
+- `prepare_data.py`: pinned benchmark downloads and paper-suite generation.
+- `generate_noise_robustness_dataset.py`: Fig. 3d, 180 NoiseSR-20 tasks.
+- `generate_v11_balanced_ablation_dataset.py`: shared 96-task suite for Fig. 4,
+  Fig. 5 and supplementary component ablations.
+- `run_v11_extrapolation_suites.py`: Fig. 3a Constructed62 runner.
+- `run_v11_high_dimensional_interference.py`: Fig. 3b–c runner.
+- `run_v11_noise_robustness.py`: Fig. 3d runner.
+- `run_v11_ablation_experiments.py`: matched multimodal, agentic and component
+  variants.
+- `compute_multimodal_ned.py`: paper NED definition and paired structural audit.
+- `summarize_candidate_coverage.py`: Fig. 6 held-out candidate coverage.
+- `package_sft_corpus.py`: package, unpack and validate the 10k Proposer corpus.
 
-- VL-LoopSR core method: `test_fey_v11_complexity_exact.py`.
-- OOD extrapolation: `run_v11_extrapolation_suites.py`.
-- High-dimensional distractors: `run_v11_high_dimensional_interference.py`.
-- High-dimensional baselines: `run_highdim_interference_baselines.py`,
-  `run_highdim_llm_baselines.py`.
-- SFT before/after: `launch_v11_sft_before_after_main_100s.sh`,
-  `summarize_v11_sft_before_after.py`.
-- Noise robustness: `run_v11_noise_robustness.py`,
-  `run_noise_robustness_baselines.py`,
-  `generate_noise_robustness_dataset.py`.
-- Component ablation: `generate_v11_balanced_ablation_dataset.py`,
-  `run_v11_ablation_experiments.py`.
-
-## Minimal Scope
-
-Only the scripts needed by the six paper launchers are kept here. Historical
-plotting helpers, exploratory workflow variants, one-off queue scripts, and old
-root-level launch wrappers have been removed.
+`vl_loopsr.py`, `vl_loopsr_core.py` and the `V11`/`LLMSR_*` identifiers remain
+for compatibility with archived runs. New documentation uses VEGA-SR.

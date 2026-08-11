@@ -4,7 +4,7 @@ model:
     population_size: 300
     generations: 15
     stopping_criteria: 1.0e-6
-    const_range: !!python/tuple [-10.0, 10.0]
+    const_range: [-10.0, 10.0]
     p_crossover: 0.7
     p_subtree_mutation: 0.1
     p_hoist_mutation: 0.05

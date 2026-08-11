@@ -1,0 +1,33 @@
+source: main.pdf Supplementary Table 3
+system:
+  python: 3.12.7
+  nvidia_driver: 570.195.03
+  cuda: 12.8
+verified_environments:
+  pysr:
+    PySR: 1.5.10
+    JuliaCall: 0.9.26
+    numpy: 1.26.4
+    sympy: 1.14.0
+  cpu_baselines:
+    gplearn: 0.4.2
+    pyoperon: 0.6.1
+    deap: 1.4.4
+    numpy: 2.2.6
+    scipy: 1.15.3
+  dso_dsr:
+    DSO: 1.0.dev0
+    tensorflow: 1.14.0
+    numpy: 1.19.0
+    scipy: 1.7.3
+  psrn_pse:
+    PSRN: 0.1.2
+    torch: 2.5.1
+    numpy: 1.22.3
+    scipy: 1.10.1
+  serving:
+    vllm: 0.17.1
+    openai: 2.24.0
+    torch: 2.10.0
+    transformers: 4.57.6
+note: Baseline environments are intentionally separate because their pinned dependencies conflict.

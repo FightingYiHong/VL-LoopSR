@@ -3,69 +3,44 @@ set -euo pipefail
 
 RUN_ID="${1:-extrapolation_$(date +%Y%m%d_%H%M%S)}"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-ROOT_DIR="${ROOT_DIR:-${PROJECT_ROOT}}"
 RESULTS_ROOT="${RESULTS_ROOT:-${PROJECT_ROOT}/runs/paper_experiments/02_extrapolation/${RUN_ID}}"
 LOG_ROOT="${LOG_ROOT:-${PROJECT_ROOT}/logs/paper_experiments/02_extrapolation/${RUN_ID}}"
-LAUNCH_VL_LOOPSR="${LAUNCH_VL_LOOPSR:-${LAUNCH_OURS_V11:-0}}"
-EXTRAP_VL_LOOPSR_CASE_BUDGET_SEC="${EXTRAP_VL_LOOPSR_CASE_BUDGET_SEC:-${EXTRAP_V11_CASE_BUDGET_SEC:-600}}"
-EXTRAP_VL_LOOPSR_PARENT_TIMEOUT_SEC="${EXTRAP_VL_LOOPSR_PARENT_TIMEOUT_SEC:-${EXTRAP_V11_PARENT_TIMEOUT_SEC:-630}}"
+RUN_OURS="${RUN_OURS:-0}"
+RUN_BASELINES="${RUN_BASELINES:-0}"
+MAX_CASES="${MAX_CASES:-62}"
+[[ "${MAX_CASES}" -gt 0 ]] || MAX_CASES=62
 
 mkdir -p "${RESULTS_ROOT}" "${LOG_ROOT}"
-cd "${ROOT_DIR}"
+cd "${PROJECT_ROOT}"
 
-cat > "${RESULTS_ROOT}/README.txt" <<EOF
-OOD extrapolation suite.
+printf '[Fig. 3a] Constructed62 OOD extrapolation: 43 one-dimensional + 19 two-dimensional tasks\n'
+printf 'results=%s\n' "${RESULTS_ROOT}"
 
-This suite corresponds to Fig. 3 in the paper.
+if [[ "${RUN_OURS}" == "1" ]]; then
+  python3 scripts/run_v11_extrapolation_suites.py \
+    --suite constructed \
+    --out-dir "${RESULTS_ROOT}/vega_sr" \
+    --case-budget-sec "${OOD_VEGA_SR_CASE_BUDGET_SEC:-600}" \
+    --parent-timeout-sec "${OOD_VEGA_SR_PARENT_TIMEOUT_SEC:-630}" \
+    --timeout-grace-sec "${OOD_TIMEOUT_GRACE_SEC:-30}" \
+    --max-cases "${MAX_CASES}" \
+    --n-train 256 --n-val 128 --n-test 512 --resume \
+    2>&1 | tee -a "${LOG_ROOT}/vega_sr.log"
+fi
 
-Benchmarks:
-- Constructed62: 62 analytic ID/OOD extrapolation tasks.
-- SurfaceBench40: public 2D surface tasks from pandoradox/symbolic-regression-surfaces.
+if [[ "${RUN_BASELINES}" == "1" ]]; then
+  methods="${OOD_BASELINE_METHODS:-pysr,pyoperon,dso,gplearn,ffx,deap,bingo,rils_rols}"
+  IFS=',' read -r -a method_list <<<"${methods}"
+  for method in "${method_list[@]}"; do
+    python3 scripts/run_strict_extrapolation_cpu_baselines.py \
+      --method "${method}" \
+      --out-dir "${RESULTS_ROOT}/${method}" \
+      --case-budget-sec "${OOD_BASELINE_CASE_BUDGET_SEC:-100}" \
+      --max-cases "${MAX_CASES}" --resume \
+      2>&1 | tee -a "${LOG_ROOT}/${method}.log"
+  done
+fi
 
-Primary readouts: raw ID/OOD R2 and NMSE, ID-to-OOD shift, negative-OOD-R2
-rate, non-finite prediction rate, and OOD/ID degradation.
-
-Controls:
-  LAUNCH_VL_LOOPSR=1
-  LAUNCH_CONSTRUCTED62=1
-  LAUNCH_SURFACEBENCH40=1
-EOF
-
-echo "[02-extrapolation] results=${RESULTS_ROOT}"
-echo "[02-extrapolation] logs=${LOG_ROOT}"
-
-if [[ "${LAUNCH_VL_LOOPSR:-0}" == "1" ]]; then
-  if [[ "${LAUNCH_CONSTRUCTED62:-1}" == "1" ]]; then
-    echo "[02-extrapolation] launching Constructed62 VL-LoopSR"
-    python3 scripts/run_v11_extrapolation_suites.py \
-      --suite constructed \
-      --out-dir "${RESULTS_ROOT}/constructed62/vl_loopsr" \
-      --case-budget-sec "${EXTRAP_VL_LOOPSR_CASE_BUDGET_SEC}" \
-      --parent-timeout-sec "${EXTRAP_VL_LOOPSR_PARENT_TIMEOUT_SEC}" \
-      --timeout-grace-sec "${EXTRAP_TIMEOUT_GRACE_SEC:-30}" \
-      --n-train "${EXTRAP_CONSTRUCTED_N_TRAIN:-256}" \
-      --n-val "${EXTRAP_CONSTRUCTED_N_VAL:-128}" \
-      --n-test "${EXTRAP_CONSTRUCTED_N_TEST:-512}" \
-      --resume \
-      2>&1 | tee -a "${LOG_ROOT}/constructed62_vl_loopsr.log"
-  fi
-
-  if [[ "${LAUNCH_SURFACEBENCH40:-1}" == "1" ]]; then
-    echo "[02-extrapolation] launching SurfaceBench40 VL-LoopSR"
-    python3 scripts/run_v11_extrapolation_suites.py \
-      --suite surfacebench \
-      --out-dir "${RESULTS_ROOT}/surfacebench40/vl_loopsr" \
-      --surfacebench-path "${SURFACEBENCH_PATH:-data/surfacebench_public/dataset.h5}" \
-      --max-cases "${SURFACEBENCH_MAX_CASES:-40}" \
-      --case-budget-sec "${EXTRAP_VL_LOOPSR_CASE_BUDGET_SEC}" \
-      --parent-timeout-sec "${EXTRAP_VL_LOOPSR_PARENT_TIMEOUT_SEC}" \
-      --timeout-grace-sec "${EXTRAP_TIMEOUT_GRACE_SEC:-30}" \
-      --n-train "${EXTRAP_SURFACE_N_TRAIN:-1000}" \
-      --n-val "${EXTRAP_SURFACE_N_VAL:-500}" \
-      --n-test "${EXTRAP_SURFACE_N_TEST:-500}" \
-      --resume \
-      2>&1 | tee -a "${LOG_ROOT}/surfacebench40_vl_loopsr.log"
-  fi
-else
-  echo "[02-extrapolation] scaffold only; set LAUNCH_VL_LOOPSR=1 to run VL-LoopSR."
+if [[ "${RUN_OURS}${RUN_BASELINES}" == "00" ]]; then
+  printf 'Prepared only. Set RUN_OURS=1 or RUN_BASELINES=1.\n'
 fi

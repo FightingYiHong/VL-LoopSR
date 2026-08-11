@@ -30,7 +30,9 @@ from scipy.optimize import minimize
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parents[1]
-OFFICIAL_ROOT = Path(os.environ.get("OFFICIAL_LLMSR_ROOT", str(PROJECT_ROOT / "external_repos" / "LLM-SR")))
+OFFICIAL_ROOT = Path(
+    os.environ.get("OFFICIAL_LLMSR_ROOT", str(PROJECT_ROOT / "data" / "external" / "methods" / "LLM-SR"))
+)
 
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 sys.path.insert(0, str(OFFICIAL_ROOT))
@@ -801,7 +803,7 @@ def run_benchmark(args, benchmark: str):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--benchmarks", default="sldbench,llmsrbench,srsd,srbench")
+    parser.add_argument("--benchmarks", default="llmsrbench,srbench,srsd")
     parser.add_argument(
         "--results-root",
         default=str(PROJECT_ROOT / "runs" / "official_llm_sr_equal_v11_600s"),

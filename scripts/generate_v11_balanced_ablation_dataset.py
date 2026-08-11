@@ -19,6 +19,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+ROOT = Path(__file__).resolve().parents[1]
+
 try:
     from run_v11_high_dimensional_interference import FORMULA_BY_ID, render_expression
 except ModuleNotFoundError:
@@ -228,7 +230,10 @@ def generate(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--out-dir", default="/mnt/hdd/llmsr_data/v11_balanced_component_ablation_96")
+    parser.add_argument(
+        "--out-dir",
+        default=str(ROOT / "data" / "generated" / "balanced_interference_96"),
+    )
     parser.add_argument("--num-cases", type=int, default=96)
     parser.add_argument("--n-train", type=int, default=128)
     parser.add_argument("--n-val", type=int, default=128)
