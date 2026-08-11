@@ -45,6 +45,7 @@ wait_for_current_jobs() {
 
 configure_enhanced_budget() {
   export PYTHONPATH="${ROOT_DIR}:${ROOT_DIR}/scripts:${PYTHONPATH:-}"
+  export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
   export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-2,3}"
   export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"
   export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-2}"
@@ -101,6 +102,12 @@ configure_enhanced_budget() {
 
   export LLMSRBENCH_ROOT="${LLMSRBENCH_ROOT:-${ROOT_DIR}/data/llmsrbench}"
   export LLMSRBENCH_HDF5="${LLMSRBENCH_HDF5:-${LLMSRBENCH_ROOT}/lsr_bench_data.hdf5}"
+  if [[ -z "${LLMSRBENCH_CASES_ROOT:-}" && -d "${ROOT_DIR}/data/sim-datasets-llmsr/llm-srbench" ]]; then
+    export LLMSRBENCH_CASES_ROOT="${ROOT_DIR}/data/sim-datasets-llmsr/llm-srbench"
+  fi
+  if [[ -z "${SLDBENCH_HUB_REPO:-}" && -d "${ROOT_DIR}/data/sldbench_repo" ]]; then
+    export SLDBENCH_HUB_REPO="${ROOT_DIR}/data/sldbench_repo"
+  fi
   export SRSD_ROOT="${SRSD_ROOT:-${ROOT_DIR}/srsd-benchmark/resource/datasets/srsd}"
   export SRBENCH_ROOT="${SRBENCH_ROOT:-${ROOT_DIR}/srbench}"
   export SRBENCH_DATASETS_INFO_CSV="${SRBENCH_DATASETS_INFO_CSV:-${SRBENCH_ROOT}/docs/csv/datasets_info.csv}"
@@ -155,7 +162,8 @@ wait_for_current_jobs
 configure_enhanced_budget
 llmsr-vllm-status >> "${LOG_DIR}/enhanced300.log" 2>&1 || true
 
-status_file="${RESULTS_BASE}/enhanced300_status.tsv"
+status_file="${STATUS_FILE:-${RESULTS_BASE}/enhanced300_status.tsv}"
+mkdir -p "$(dirname "${status_file}")"
 printf 'run_id\tbenchmark\tstatus\tstart_time\tend_time\truntime_sec\tresults_root\tlog_file\n' > "${status_file}"
 
 for benchmark in ${BENCHMARKS}; do

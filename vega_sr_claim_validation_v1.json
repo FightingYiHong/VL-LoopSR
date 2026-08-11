@@ -1,0 +1,310 @@
+{
+  "experiment_id": "vega_sr_claim_validation_v1",
+  "purpose": "Causal validation of multimodal proposal guidance, agentic evaluation, and search efficiency in VEGA-SR.",
+  "paths": {
+    "root": "${LLMSR_ROOT}",
+    "ablation_runner": "${LLMSR_ROOT}/scripts/run_v11_ablation_experiments.py",
+    "claim_summarizer": "${LLMSR_ROOT}/scripts/summarize_vega_sr_claim_validation.py",
+    "v11_path": "${LLMSR_ROOT}/scripts/test_fey_v11_complexity_exact.py",
+    "dataset_root": "${LLMSR_ABLATION_DATASET_ROOT}",
+    "dataset_generator": "${LLMSR_ROOT}/scripts/generate_v11_component_ablation_v4.py",
+    "output_root": "${LLMSR_RESULTS_ROOT}/vega_sr_claim_validation_v1"
+  },
+  "required_environment": [
+    "LLMSR_AGENT_API_BASE",
+    "LLMSR_AGENT_MODEL"
+  ],
+  "dataset": {
+    "generate_if_missing": true,
+    "cases_per_target": 24,
+    "targets": [
+      "observer",
+      "critic"
+    ],
+    "n_train": 256,
+    "n_val": 128,
+    "n_test": 1024
+  },
+  "execution": {
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "random_state": 20260526,
+    "case_budget_sec": 300,
+    "timeout_grace_sec": 60,
+    "parent_timeout_sec": 390,
+    "resume": true,
+    "pilot_max_cases": 4,
+    "full_max_cases": 0
+  },
+  "shared_env": {
+    "PYTHONUNBUFFERED": "1",
+    "LLMSR_EVAL_PROFILE": "quality",
+    "LLMSR_METHOD_MODE": "planner_guided",
+    "LLMSR_LIGHT_MODE": "0",
+    "LLMSR_V11_DISABLE_RUNTIME_FAST_PATH": "1",
+    "LLMSR_V11_BUDGET_AWARE_MODE": "on",
+    "LLMSR_V11_FULL_BUDGET": "1",
+    "LLMSR_V11_FULL_BUDGET_TEXT_CALLS": "4",
+    "LLMSR_V11_FULL_BUDGET_MM_CALLS": "1",
+    "LLMSR_V11_FULL_BUDGET_PROPOSAL_K": "16",
+    "LLMSR_V11_FULL_BUDGET_REFINED_K": "8",
+    "LLMSR_V11_FULL_BUDGET_REFINE_ROUNDS": "4",
+    "LLMSR_V11_IMAGE_LOOP_MAX_ROUNDS": "4",
+    "LLMSR_V11_IMAGE_LOOP_MAX_AUGMENTED_CANDIDATES": "160",
+    "LLMSR_V11_VLM_OBSERVER_MAX_IMAGES": "1",
+    "LLMSR_V11_VLM_OBSERVER_MAX_ROWS": "24",
+    "LLMSR_V11_VLM_OBSERVER_MAX_TOKENS": "600",
+    "LLMSR_V11_VLM_OBSERVER_TEMPERATURE": "0.1"
+  },
+  "method_variants": {
+    "proposal_multimodal": {
+      "description": "Initial proposal with aligned numerical and graphical observations; no iterative feedback.",
+      "env": {
+        "LLMSR_V11_ENABLE_OBSERVER": "1",
+        "LLMSR_V11_ENABLE_VLM_OBSERVER": "1",
+        "LLMSR_V11_VLM_OBSERVER_GENERATE_IMAGES": "1",
+        "LLMSR_V11_OBSERVER_INPUT_MODE": "aligned_control",
+        "LLMSR_V11_ENABLE_PROPOSER": "1",
+        "LLMSR_V11_ENABLE_CRITIC_LOOP": "0",
+        "LLMSR_V11_ENABLE_STRUCTURE_EVALUATOR": "1",
+        "LLMSR_V11_CRITIC_FEEDBACK_MODE": "agentic"
+      }
+    },
+    "proposal_numeric_only": {
+      "description": "Initial proposal with the same numerical observations and VLM call but no graphical input.",
+      "env": {
+        "LLMSR_V11_ENABLE_OBSERVER": "1",
+        "LLMSR_V11_ENABLE_VLM_OBSERVER": "1",
+        "LLMSR_V11_VLM_OBSERVER_GENERATE_IMAGES": "1",
+        "LLMSR_V11_OBSERVER_INPUT_MODE": "numeric_only",
+        "LLMSR_V11_ENABLE_PROPOSER": "1",
+        "LLMSR_V11_ENABLE_CRITIC_LOOP": "0",
+        "LLMSR_V11_ENABLE_STRUCTURE_EVALUATOR": "1",
+        "LLMSR_V11_CRITIC_FEEDBACK_MODE": "agentic"
+      }
+    },
+    "proposal_permuted_visual": {
+      "description": "Initial proposal with unchanged numerical observations and a matched plot whose target values are permuted.",
+      "env": {
+        "LLMSR_V11_ENABLE_OBSERVER": "1",
+        "LLMSR_V11_ENABLE_VLM_OBSERVER": "1",
+        "LLMSR_V11_VLM_OBSERVER_GENERATE_IMAGES": "1",
+        "LLMSR_V11_OBSERVER_INPUT_MODE": "permuted_control",
+        "LLMSR_V11_ENABLE_PROPOSER": "1",
+        "LLMSR_V11_ENABLE_CRITIC_LOOP": "0",
+        "LLMSR_V11_ENABLE_STRUCTURE_EVALUATOR": "1",
+        "LLMSR_V11_CRITIC_FEEDBACK_MODE": "agentic"
+      }
+    },
+    "vega_sr_full": {
+      "description": "Aligned multimodal observations with result-conditioned agentic evaluation.",
+      "env": {
+        "LLMSR_V11_ENABLE_OBSERVER": "1",
+        "LLMSR_V11_ENABLE_VLM_OBSERVER": "1",
+        "LLMSR_V11_VLM_OBSERVER_GENERATE_IMAGES": "1",
+        "LLMSR_V11_OBSERVER_INPUT_MODE": "native",
+        "LLMSR_V11_ENABLE_PROPOSER": "1",
+        "LLMSR_V11_ENABLE_CRITIC_LOOP": "1",
+        "LLMSR_V11_ENABLE_STRUCTURAL_RESCUE": "1",
+        "LLMSR_V11_ENABLE_STRUCTURE_EVALUATOR": "1",
+        "LLMSR_V11_CRITIC_FEEDBACK_MODE": "agentic"
+      }
+    },
+    "agentic_matched_feedback": {
+      "description": "Result-conditioned agentic feedback under a fixed four-round, fixed per-round candidate budget.",
+      "env": {
+        "LLMSR_V11_ENABLE_OBSERVER": "1",
+        "LLMSR_V11_ENABLE_VLM_OBSERVER": "1",
+        "LLMSR_V11_VLM_OBSERVER_GENERATE_IMAGES": "1",
+        "LLMSR_V11_OBSERVER_INPUT_MODE": "native",
+        "LLMSR_V11_ENABLE_PROPOSER": "1",
+        "LLMSR_V11_ENABLE_CRITIC_LOOP": "1",
+        "LLMSR_V11_ENABLE_STRUCTURAL_RESCUE": "1",
+        "LLMSR_V11_ENABLE_STRUCTURE_EVALUATOR": "1",
+        "LLMSR_V11_CRITIC_FEEDBACK_MODE": "agentic",
+        "LLMSR_V11_MATCH_REFINEMENT_BUDGET": "1",
+        "LLMSR_V11_FORCE_REFINEMENT_ROUNDS": "1"
+      }
+    },
+    "full_numeric_only": {
+      "description": "Full iterative system with the same numerical observations but no graphical input.",
+      "env": {
+        "LLMSR_V11_ENABLE_OBSERVER": "1",
+        "LLMSR_V11_ENABLE_VLM_OBSERVER": "1",
+        "LLMSR_V11_VLM_OBSERVER_GENERATE_IMAGES": "1",
+        "LLMSR_V11_OBSERVER_INPUT_MODE": "numeric_only",
+        "LLMSR_V11_ENABLE_PROPOSER": "1",
+        "LLMSR_V11_ENABLE_CRITIC_LOOP": "1",
+        "LLMSR_V11_ENABLE_STRUCTURAL_RESCUE": "1",
+        "LLMSR_V11_ENABLE_STRUCTURE_EVALUATOR": "1",
+        "LLMSR_V11_CRITIC_FEEDBACK_MODE": "agentic"
+      }
+    },
+    "full_permuted_visual": {
+      "description": "Full iterative system with unchanged numerical observations and target-permuted plots.",
+      "env": {
+        "LLMSR_V11_ENABLE_OBSERVER": "1",
+        "LLMSR_V11_ENABLE_VLM_OBSERVER": "1",
+        "LLMSR_V11_VLM_OBSERVER_GENERATE_IMAGES": "1",
+        "LLMSR_V11_OBSERVER_INPUT_MODE": "permuted_control",
+        "LLMSR_V11_ENABLE_PROPOSER": "1",
+        "LLMSR_V11_ENABLE_CRITIC_LOOP": "1",
+        "LLMSR_V11_ENABLE_STRUCTURAL_RESCUE": "1",
+        "LLMSR_V11_ENABLE_STRUCTURE_EVALUATOR": "1",
+        "LLMSR_V11_CRITIC_FEEDBACK_MODE": "agentic"
+      }
+    },
+    "generic_iterative_feedback": {
+      "description": "Matched iterative and model-call budget with generic refinement instructions that omit result-specific diagnosis.",
+      "env": {
+        "LLMSR_V11_ENABLE_OBSERVER": "1",
+        "LLMSR_V11_ENABLE_VLM_OBSERVER": "1",
+        "LLMSR_V11_VLM_OBSERVER_GENERATE_IMAGES": "1",
+        "LLMSR_V11_OBSERVER_INPUT_MODE": "native",
+        "LLMSR_V11_ENABLE_PROPOSER": "1",
+        "LLMSR_V11_ENABLE_CRITIC_LOOP": "1",
+        "LLMSR_V11_ENABLE_STRUCTURAL_RESCUE": "1",
+        "LLMSR_V11_ENABLE_STRUCTURE_EVALUATOR": "1",
+        "LLMSR_V11_CRITIC_FEEDBACK_MODE": "generic",
+        "LLMSR_V11_MATCH_REFINEMENT_BUDGET": "1",
+        "LLMSR_V11_FORCE_REFINEMENT_ROUNDS": "1"
+      }
+    },
+    "no_iterative_feedback": {
+      "description": "Aligned multimodal proposal followed by evaluation and selection without later feedback rounds.",
+      "env": {
+        "LLMSR_V11_ENABLE_OBSERVER": "1",
+        "LLMSR_V11_ENABLE_VLM_OBSERVER": "1",
+        "LLMSR_V11_VLM_OBSERVER_GENERATE_IMAGES": "1",
+        "LLMSR_V11_OBSERVER_INPUT_MODE": "native",
+        "LLMSR_V11_ENABLE_PROPOSER": "1",
+        "LLMSR_V11_ENABLE_CRITIC_LOOP": "0",
+        "LLMSR_V11_ENABLE_STRUCTURAL_RESCUE": "1",
+        "LLMSR_V11_ENABLE_STRUCTURE_EVALUATOR": "1",
+        "LLMSR_V11_CRITIC_FEEDBACK_MODE": "agentic"
+      }
+    }
+  },
+  "studies": [
+    {
+      "name": "multimodal_initial_proposal",
+      "claim": "Aligned graphical information improves the equations considered before iterative feedback begins.",
+      "suite": "component_ablation",
+      "target_component": "observer",
+      "methods": [
+        "proposal_multimodal",
+        "proposal_numeric_only",
+        "proposal_permuted_visual"
+      ],
+      "primary_metrics": [
+        "initial_true_variable_recall",
+        "initial_false_variable_discovery_rate",
+        "log10_initial_best_val_mse",
+        "initial_candidate_count"
+      ]
+    },
+    {
+      "name": "multimodal_end_to_end",
+      "claim": "Multimodal guidance improves final equation recovery when the full iterative system is retained.",
+      "suite": "component_ablation",
+      "target_component": "observer",
+      "methods": [
+        "vega_sr_full",
+        "full_numeric_only",
+        "full_permuted_visual"
+      ],
+      "primary_metrics": [
+        "true_variable_recall",
+        "false_variable_discovery_rate",
+        "skeleton_recovery",
+        "log10_best_test_mse",
+        "expr_complexity"
+      ]
+    },
+    {
+      "name": "agentic_evaluation",
+      "claim": "Result-conditioned agentic evaluation improves later proposals beyond the effects of additional rounds alone.",
+      "suite": "component_ablation",
+      "target_component": "critic",
+      "methods": [
+        "agentic_matched_feedback",
+        "generic_iterative_feedback",
+        "no_iterative_feedback"
+      ],
+      "primary_metrics": [
+        "skeleton_recovery",
+        "log10_best_test_mse",
+        "validation_improvement_fraction",
+        "feedback_improvement_fraction",
+        "completed_refinement_rounds"
+      ]
+    }
+  ],
+  "analysis": {
+    "pairing_keys": [
+      "case_name",
+      "repeat_seed"
+    ],
+    "bootstrap_resamples": 10000,
+    "confidence_level": 0.95,
+    "metric_direction": {
+      "initial_true_variable_recall": "higher",
+      "initial_false_variable_discovery_rate": "lower",
+      "initial_best_val_mse": "lower",
+      "log10_initial_best_val_mse": "lower",
+      "true_variable_recall": "higher",
+      "false_variable_discovery_rate": "lower",
+      "skeleton_recovery": "higher",
+      "passed": "higher",
+      "best_test_mse": "lower",
+      "log10_best_test_mse": "lower",
+      "expr_complexity": "lower",
+      "validation_improvement_fraction": "higher",
+      "feedback_improvement_fraction": "higher",
+      "runtime_sec": "lower",
+      "initial_candidate_count": "lower",
+      "total_proposed_candidate_count": "lower",
+      "unique_candidate_pattern_count": "lower",
+      "revisited_candidate_fraction": "lower",
+      "completed_refinement_rounds": "lower"
+    },
+    "efficiency_metrics": [
+      "runtime_sec",
+      "initial_candidate_count",
+      "total_proposed_candidate_count",
+      "unique_candidate_pattern_count",
+      "revisited_candidate_fraction",
+      "completed_refinement_rounds",
+      "feedback_improvement_fraction"
+    ],
+    "planned_contrasts": [
+      [
+        "proposal_multimodal",
+        "proposal_numeric_only"
+      ],
+      [
+        "proposal_multimodal",
+        "proposal_permuted_visual"
+      ],
+      [
+        "vega_sr_full",
+        "full_numeric_only"
+      ],
+      [
+        "vega_sr_full",
+        "full_permuted_visual"
+      ],
+      [
+        "agentic_matched_feedback",
+        "generic_iterative_feedback"
+      ],
+      [
+        "agentic_matched_feedback",
+        "no_iterative_feedback"
+      ]
+    ]
+  }
+}

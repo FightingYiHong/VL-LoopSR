@@ -22,6 +22,7 @@ import time
 import pickle
 import hashlib
 import random
+import multiprocessing as mp
 import warnings
 import importlib.util
 from pathlib import Path
@@ -102,6 +103,11 @@ DRY_RUN_SELECTION_ONLY = os.environ.get("SRSD_DRY_RUN", "0").lower() in {"1", "t
 
 MSE_THRESHOLD = float(os.environ.get("SRSD_MSE_THRESHOLD", "100.0"))
 PERFECT_FIT_TOL = float(os.environ.get("SRSD_PERFECT_FIT_TOL", "1e-10"))
+RESUME_EXISTING = os.environ.get("SRSD_RESUME", "1").lower() in {"1", "true", "yes", "y"}
+HARD_TIMEOUT_SEC = float(os.environ.get(
+    "SRSD_HARD_TIMEOUT_SEC",
+    str(float(os.environ.get("LLMSR_MAX_RUNTIME_PER_TASK_SEC", "600")) + 120.0),
+))
 
 
 def import_v10_module():
@@ -363,6 +369,117 @@ def run_one_raw_task_v10(v10, row, tmpdir: Path):
         }
 
 
+def run_one_with_hard_timeout(v10, row, tmpdir: Path):
+    if HARD_TIMEOUT_SEC <= 0:
+        return run_one_raw_task_v10(v10, row, tmpdir)
+
+    # A SIGALRM cannot reliably interrupt long-running native NumPy/SciPy
+    # calls. Run each case in its own process so the outer timeout remains a
+    # genuine wall-clock cap even while the solver is inside native code.
+    ctx = mp.get_context("fork")
+    recv_conn, send_conn = ctx.Pipe(duplex=False)
+    process = ctx.Process(
+        target=_run_one_in_child,
+        args=(send_conn, v10, row, str(tmpdir)),
+        daemon=False,
+    )
+    start = time.time()
+    process.start()
+    send_conn.close()
+    try:
+        # Receive before join: large result dictionaries can exceed the pipe
+        # buffer, leaving the child blocked in send() while the parent waits
+        # for it to exit.
+        if recv_conn.poll(HARD_TIMEOUT_SEC):
+            try:
+                result = recv_conn.recv()
+            except EOFError:
+                result = None
+
+            process.join(2.0)
+            if process.is_alive():
+                process.terminate()
+                process.join(5.0)
+            if process.is_alive():
+                process.kill()
+                process.join(5.0)
+
+            if result is not None:
+                return result
+            return _timeout_result(
+                row,
+                time.time() - start,
+                error=f"SRSD worker exited with code {process.exitcode} without a result",
+            )
+
+        if process.is_alive():
+            process.terminate()
+            process.join(5.0)
+            if process.is_alive():
+                process.kill()
+                process.join(5.0)
+            return _timeout_result(row, time.time() - start)
+
+        return _timeout_result(
+            row,
+            time.time() - start,
+            error=f"SRSD worker exited with code {process.exitcode} without a result",
+        )
+    finally:
+        recv_conn.close()
+
+
+def _run_one_in_child(send_conn, v10, row, tmpdir_str):
+    try:
+        result = run_one_raw_task_v10(v10, row, Path(tmpdir_str))
+        send_conn.send(result)
+    finally:
+        send_conn.close()
+
+
+def _timeout_result(row, runtime_sec, error=None):
+    return {
+        "dataset_dir": row.get("dataset_dir"),
+        "difficulty": row.get("difficulty"),
+        "base_name": row.get("base_name"),
+        "train_path": row.get("train_path"),
+        "val_path": row.get("val_path"),
+        "test_path": row.get("test_path"),
+        "true_eq_path": row.get("true_eq_path"),
+        "true_expression": row.get("true_expression"),
+        "eval_profile": None,
+        "method_mode": None,
+        "no_leakage_mode": None,
+        "task_type": "srsd",
+        "n_features": row.get("n_features"),
+        "n_train": row.get("n_train"),
+        "n_val": row.get("n_val"),
+        "n_test": row.get("n_test"),
+        "valid_formula_found": False,
+        "num_candidate_exprs": 0,
+        "best_expr": None,
+        "best_val_mse": None,
+        "best_test_mse": None,
+        "train_r2": None,
+        "val_r2": None,
+        "test_r2": None,
+        "expr_complexity": None,
+        "expr_depth": None,
+        "expr_string_length": None,
+        "expr_sympy_ops": None,
+        "perfect_fit_by_r2": False,
+        "metric_eval_error": None,
+        "passed": False,
+        "perfect_fit": False,
+        "runtime_sec": runtime_sec,
+        "error": error or f"SRSD worker hard timeout after {HARD_TIMEOUT_SEC:.0f}s",
+    }
+
+
+def result_key(row):
+    return str(row.get("dataset_dir", "")), str(row.get("base_name", ""))
+
+
 def print_one_result(idx, total, row, res):
     print(f"[{idx}/{total}] Processing: {row['base_name']}")
     print(f"   dataset_dir:         {row['dataset_dir']}")
@@ -475,6 +592,18 @@ def main():
     print(f"[INFO] Selected {total_selected} SRSD cases. Starting execution...", flush=True)
 
     all_results_global = []
+    completed_keys = set()
+    if RESUME_EXISTING and os.path.exists(GLOBAL_SUMMARY_CSV):
+        existing = pd.read_csv(GLOBAL_SUMMARY_CSV).replace({np.nan: None})
+        existing = existing.drop_duplicates(["dataset_dir", "base_name"], keep="last")
+        all_results_global = existing.to_dict("records")
+        completed_keys = {result_key(row) for row in all_results_global}
+        print(
+            f"[RESUME] Loaded {len(all_results_global)} completed SRSD cases "
+            f"from {GLOBAL_SUMMARY_CSV}",
+            flush=True,
+        )
+
     global_idx = 0
 
     with TemporaryDirectory(prefix="srsd_v10_tmp_") as tmpdir_str:
@@ -490,16 +619,28 @@ def main():
             print(f"RUN DATASET DIR: {dataset_dir_name}")
             print("#" * 100)
 
-            dataset_results = []
+            dataset_results = [
+                result for result in all_results_global
+                if str(result.get("dataset_dir", "")) == dataset_dir_name
+            ]
             dataset_csv = os.path.join(RESULTS_ROOT, f"{sanitize_name(dataset_dir_name)}_results.csv")
 
             for _, row in df_tasks.iterrows():
                 global_idx += 1
                 row_dict = row.to_dict()
+                key = result_key(row_dict)
+                if key in completed_keys:
+                    print(
+                        f"[{global_idx}/{total_selected}] Resume skip: "
+                        f"{dataset_dir_name}/{row_dict['base_name']}",
+                        flush=True,
+                    )
+                    continue
                 print(f"[{global_idx}/{total_selected}] Starting: {row_dict['base_name']}", flush=True)
-                res = run_one_raw_task_v10(v10, row_dict, tmpdir=tmpdir)
+                res = run_one_with_hard_timeout(v10, row_dict, tmpdir=tmpdir)
                 dataset_results.append(res)
                 all_results_global.append(res)
+                completed_keys.add(key)
                 print_one_result(global_idx, total_selected, row_dict, res)
 
                 pd.DataFrame(dataset_results).to_csv(dataset_csv, index=False)

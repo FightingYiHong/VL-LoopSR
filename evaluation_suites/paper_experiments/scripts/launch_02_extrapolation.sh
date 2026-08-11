@@ -22,7 +22,8 @@ Benchmarks:
 - Constructed62: 62 analytic ID/OOD extrapolation tasks.
 - SurfaceBench40: public 2D surface tasks from pandoradox/symbolic-regression-surfaces.
 
-Primary readouts: ID/OOD log-MSE, ID-to-OOD shift, and OOD/ID degradation.
+Primary readouts: raw ID/OOD R2 and NMSE, ID-to-OOD shift, negative-OOD-R2
+rate, non-finite prediction rate, and OOD/ID degradation.
 
 Controls:
   LAUNCH_VL_LOOPSR=1

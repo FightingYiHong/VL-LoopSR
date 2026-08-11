@@ -105,4 +105,6 @@ Before pushing to GitHub:
 gitleaks detect --no-git --source .  # or your preferred secret scanner
 bash -n evaluation_suites/paper_experiments/scripts/*.sh scripts/*.sh
 python3 -m py_compile scripts/*.py tools/*.py llms/*.py llms/tasks/*.py
+pip install -r requirements-dev.txt
+pytest -q
 ```

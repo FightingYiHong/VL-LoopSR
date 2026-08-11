@@ -165,7 +165,7 @@ def run_one(case: highdim.HighDimCase, args) -> dict:
                 "true_expression_for_scoring": case.true_expression,
             }
         )
-        out.update(highdim_base.score_result(case, out))
+        out.update(highdim_base.score_result(case, out, train_df, val_df, test_df))
         return out
     except BaseException as exc:
         if isinstance(exc, KeyboardInterrupt):
@@ -224,6 +224,9 @@ def summarize(rows: list[dict], out_dir: Path) -> None:
         "timed_out",
         "passed",
         "exact_recovery",
+        "strict_formula_recovery",
+        "numerical_complete_fit",
+        "exact_recovery_proxy",
         "skeleton_recovery",
         "true_variable_recall",
         "false_variable_discovery_rate",
@@ -231,6 +234,9 @@ def summarize(rows: list[dict], out_dir: Path) -> None:
         "nonlinear_decoy_misuse",
         "irrelevant_misuse",
         "best_test_mse",
+        "test_rmse",
+        "test_nmse",
+        "test_r2",
         "runtime_sec",
         "expr_complexity",
     ]:
@@ -244,6 +250,7 @@ def summarize(rows: list[dict], out_dir: Path) -> None:
             timeout_rate=("timed_out", "mean"),
             pass_rate=("passed", "mean"),
             exact_recovery=("exact_recovery", "mean"),
+            numerical_complete_fit=("numerical_complete_fit", "mean"),
             skeleton_recovery=("skeleton_recovery", "mean"),
             true_variable_recall=("true_variable_recall", "mean"),
             false_variable_discovery_rate=("false_variable_discovery_rate", "mean"),
@@ -251,6 +258,8 @@ def summarize(rows: list[dict], out_dir: Path) -> None:
             nonlinear_decoy_misuse_rate=("nonlinear_decoy_misuse", "mean"),
             irrelevant_misuse_rate=("irrelevant_misuse", "mean"),
             median_test_mse=("best_test_mse", "median"),
+            median_test_rmse=("test_rmse", "median"),
+            median_test_nmse=("test_nmse", "median"),
             median_complexity=("expr_complexity", "median"),
             median_runtime_sec=("runtime_sec", "median"),
         )

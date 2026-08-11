@@ -1,0 +1,94 @@
+{
+  "experiment_id": "multimodal_model_comparison_balanced96_v1",
+  "purpose": "Matched comparison of visual input, numeric-only input to the same vision-language model, and a text-only model on the Balanced-96 symbolic-regression suite.",
+  "shared_env": {
+    "PYTHONUNBUFFERED": "1",
+    "LLMSR_EVAL_PROFILE": "quality",
+    "LLMSR_METHOD_MODE": "planner_guided",
+    "LLMSR_LIGHT_MODE": "0",
+    "LLMSR_V11_DISABLE_RUNTIME_FAST_PATH": "1",
+    "LLMSR_V11_BUDGET_AWARE_MODE": "on",
+    "LLMSR_V11_FULL_BUDGET": "1",
+    "LLMSR_V11_FULL_BUDGET_TEXT_CALLS": "1",
+    "LLMSR_V11_FULL_BUDGET_MM_CALLS": "1",
+    "LLMSR_V11_FULL_BUDGET_PROPOSAL_K": "12",
+    "LLMSR_V11_FULL_BUDGET_REFINED_K": "4",
+    "LLMSR_V11_FULL_BUDGET_REFINE_ROUNDS": "1",
+    "LLMSR_V11_MATCH_REFINEMENT_BUDGET": "1",
+    "LLMSR_V11_IMAGE_LOOP_MAX_ROUNDS": "1",
+    "LLMSR_V11_IMAGE_LOOP_MAX_AUGMENTED_CANDIDATES": "24",
+    "LLMSR_V11_RESTORE_TEXT_PROPOSER": "1",
+    "LLMSR_V11_FORCE_INITIAL_MODALITY_PROPOSAL": "1",
+    "LLMSR_V11_MATCHED_MODALITY_CALLS": "1",
+    "LLMSR_V11_MATCHED_INITIAL_CANDIDATES": "12",
+    "LLMSR_V11_MATCHED_MM_MAX_ROWS": "12",
+    "LLMSR_V11_MATCHED_MM_MAX_TOKENS": "384",
+    "LLMSR_V11_MATCHED_MM_CANDIDATES_PER_CALL": "1",
+    "LLMSR_V11_VLM_OBSERVER_MAX_IMAGES": "1",
+    "LLMSR_V11_VLM_OBSERVER_MAX_ROWS": "24",
+    "LLMSR_V11_VLM_OBSERVER_MAX_TOKENS": "400",
+    "LLMSR_V11_VLM_OBSERVER_TEMPERATURE": "0.1"
+  },
+  "method_variants": {
+    "qwen3_vl_multimodal": {
+      "description": "Qwen3-VL-32B-Instruct with aligned numerical and graphical observations.",
+      "env": {
+        "LLMSR_AGENT_API_BASE": "http://127.0.0.1:8001/v1",
+        "LLMSR_AGENT_MODEL": "Qwen3-VL-32B-Instruct",
+        "LLMSR_AGENT_API_KEY": "EMPTY",
+        "LLMSR_DEFAULT_API_BASE": "http://127.0.0.1:8001/v1",
+        "LLMSR_DEFAULT_MODEL": "Qwen3-VL-32B-Instruct",
+        "LLMSR_DEFAULT_API_KEY": "EMPTY",
+        "LLMSR_V11_ENABLE_OBSERVER": "1",
+        "LLMSR_V11_ENABLE_VLM_OBSERVER": "1",
+        "LLMSR_V11_VLM_OBSERVER_GENERATE_IMAGES": "1",
+        "LLMSR_V11_OBSERVER_INPUT_MODE": "native",
+        "LLMSR_V11_ENABLE_PROPOSER": "1",
+        "LLMSR_V11_ENABLE_CRITIC_LOOP": "1",
+        "LLMSR_V11_ENABLE_STRUCTURAL_RESCUE": "1",
+        "LLMSR_V11_ENABLE_STRUCTURE_EVALUATOR": "1",
+        "LLMSR_V11_CRITIC_FEEDBACK_MODE": "agentic"
+      }
+    },
+    "qwen3_vl_numeric_only": {
+      "description": "Qwen3-VL-32B-Instruct with the same numerical observations and search budget but no graphical input.",
+      "env": {
+        "LLMSR_AGENT_API_BASE": "http://127.0.0.1:8001/v1",
+        "LLMSR_AGENT_MODEL": "Qwen3-VL-32B-Instruct",
+        "LLMSR_AGENT_API_KEY": "EMPTY",
+        "LLMSR_DEFAULT_API_BASE": "http://127.0.0.1:8001/v1",
+        "LLMSR_DEFAULT_MODEL": "Qwen3-VL-32B-Instruct",
+        "LLMSR_DEFAULT_API_KEY": "EMPTY",
+        "LLMSR_V11_ENABLE_OBSERVER": "1",
+        "LLMSR_V11_ENABLE_VLM_OBSERVER": "1",
+        "LLMSR_V11_VLM_OBSERVER_GENERATE_IMAGES": "1",
+        "LLMSR_V11_OBSERVER_INPUT_MODE": "numeric_only",
+        "LLMSR_V11_ENABLE_PROPOSER": "1",
+        "LLMSR_V11_ENABLE_CRITIC_LOOP": "1",
+        "LLMSR_V11_ENABLE_STRUCTURAL_RESCUE": "1",
+        "LLMSR_V11_ENABLE_STRUCTURE_EVALUATOR": "1",
+        "LLMSR_V11_CRITIC_FEEDBACK_MODE": "agentic"
+      }
+    },
+    "qwen3_text_numeric_only": {
+      "description": "Qwen3-32B text-only model with numerical observations and the same iterative search budget.",
+      "env": {
+        "LLMSR_AGENT_API_BASE": "http://127.0.0.1:8002/v1",
+        "LLMSR_AGENT_MODEL": "Qwen3-32B",
+        "LLMSR_AGENT_API_KEY": "EMPTY",
+        "LLMSR_DEFAULT_API_BASE": "http://127.0.0.1:8002/v1",
+        "LLMSR_DEFAULT_MODEL": "Qwen3-32B",
+        "LLMSR_DEFAULT_API_KEY": "EMPTY",
+        "LLMSR_V11_ENABLE_OBSERVER": "1",
+        "LLMSR_V11_ENABLE_VLM_OBSERVER": "1",
+        "LLMSR_V11_VLM_OBSERVER_GENERATE_IMAGES": "1",
+        "LLMSR_V11_OBSERVER_INPUT_MODE": "numeric_only",
+        "LLMSR_V11_ENABLE_PROPOSER": "1",
+        "LLMSR_V11_ENABLE_CRITIC_LOOP": "1",
+        "LLMSR_V11_ENABLE_STRUCTURAL_RESCUE": "1",
+        "LLMSR_V11_ENABLE_STRUCTURE_EVALUATOR": "1",
+        "LLMSR_V11_CRITIC_FEEDBACK_MODE": "agentic"
+      }
+    }
+  }
+}

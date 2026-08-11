@@ -20,9 +20,11 @@ It prints in the same per-case style as those wrappers and adds:
 
 import argparse
 import contextlib
+import gzip
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import re
 import signal
@@ -52,6 +54,151 @@ MSE_THRESHOLD = float(os.environ.get("CPU_SR_MSE_THRESHOLD", "100.0"))
 PERFECT_FIT_TOL = float(os.environ.get("CPU_SR_PERFECT_FIT_TOL", "1e-10"))
 PERFECT_FIT_R2_THRESHOLD = float(os.environ.get("CPU_SR_PERFECT_FIT_R2_THRESHOLD", "0.999"))
 CASE_LOG_TAIL_CHARS = int(os.environ.get("CPU_SR_CASE_LOG_TAIL_CHARS", "4000"))
+SEARCH_EFFICIENCY_THRESHOLD = float(os.environ.get("CPU_SR_SEARCH_EFFICIENCY_THRESHOLD", "0.999"))
+
+
+class ValidationSearchHit(RuntimeError):
+    """Internal control flow used to stop a search after the validation hit."""
+
+
+class SearchEfficiencyTracker:
+    def __init__(self, method: str):
+        self.method = method
+        self.threshold = SEARCH_EFFICIENCY_THRESHOLD
+        self.started_at = time.time()
+        self.observed_evaluations = 0
+        self.unique_evaluations = 0
+        self.native_evaluations_observed = 0
+        self.seen = set()
+        self.first_hit = None
+        self.best = None
+        trace_path = os.environ.get("CPU_SR_SEARCH_EFFICIENCY_TRACE")
+        self.trace_path = Path(trace_path) if trace_path else None
+        if self.trace_path:
+            self.trace_path.parent.mkdir(parents=True, exist_ok=True)
+            if self.trace_path.exists():
+                self.trace_path.unlink()
+        self._trace_fp = None
+
+    @staticmethod
+    def _key(expr):
+        return re.sub(r"\s+", "", str(expr))
+
+    def observe(self, expr, pred_val, *, stage: str, native_evaluations=None, extra=None):
+        self.observed_evaluations += 1
+        if native_evaluations is not None:
+            self.native_evaluations_observed = max(
+                self.native_evaluations_observed,
+                int(native_evaluations),
+            )
+        key = self._key(expr)
+        is_unique = key not in self.seen
+        if is_unique:
+            self.seen.add(key)
+            self.unique_evaluations += 1
+        val_r2 = safe_r2(pred_val[0], pred_val[1])
+        event = {
+            "method": self.method,
+            "candidate_index": int(self.observed_evaluations),
+            "unique_candidate_index": int(self.unique_evaluations),
+            "is_unique": bool(is_unique),
+            "native_evaluations": (
+                int(native_evaluations) if native_evaluations is not None else None
+            ),
+            "stage": str(stage),
+            "expression": str(expr),
+            "validation_r2": val_r2,
+            "elapsed_sec": float(time.time() - self.started_at),
+        }
+        if extra:
+            event.update(json_safe_record(extra))
+        if self.best is None or (
+            val_r2 is not None and val_r2 > (self.best.get("validation_r2") or -math.inf)
+        ):
+            self.best = dict(event)
+        if self.first_hit is None and val_r2 is not None and val_r2 > self.threshold:
+            event["validation_success"] = True
+            self.first_hit = dict(event)
+        else:
+            event["validation_success"] = False
+        self._write_event(event)
+        return bool(event["validation_success"])
+
+    def _write_event(self, event):
+        if not self.trace_path:
+            return
+        if (
+            not event.get("is_unique")
+            and not event.get("validation_success")
+            and int(event["candidate_index"]) % 1000 != 0
+        ):
+            return
+        if self._trace_fp is None:
+            opener = gzip.open if self.trace_path.suffix == ".gz" else open
+            self._trace_fp = opener(self.trace_path, "wt", encoding="utf-8")
+        self._trace_fp.write(
+            json.dumps(json_safe_record(event), ensure_ascii=False, allow_nan=False)
+        )
+        self._trace_fp.write("\n")
+        self._trace_fp.flush()
+
+    def metrics(self):
+        if self._trace_fp is not None:
+            self._trace_fp.close()
+            self._trace_fp = None
+        hit = self.first_hit or {}
+        best = self.best or {}
+        elapsed = max(time.time() - self.started_at, 1e-12)
+        return {
+            "validation_search_threshold": float(self.threshold),
+            "validation_search_rule": "strictly_greater",
+            "validation_search_success": bool(self.first_hit),
+            "evaluations_to_validation_success": hit.get("candidate_index"),
+            "unique_evaluations_to_validation_success": hit.get("unique_candidate_index"),
+            "native_evaluations_to_validation_success": hit.get("native_evaluations"),
+            "first_validation_success_stage": hit.get("stage"),
+            "first_validation_success_expression": hit.get("expression"),
+            "first_validation_success_r2": hit.get("validation_r2"),
+            "first_validation_success_elapsed_sec": hit.get("elapsed_sec"),
+            "validation_search_observed_evaluations": int(self.observed_evaluations),
+            "validation_search_unique_evaluations": int(self.unique_evaluations),
+            "validation_search_native_evaluations": int(self.native_evaluations_observed),
+            "validation_search_best_r2": best.get("validation_r2"),
+            "validation_search_best_expression": best.get("expression"),
+            "validation_search_evaluations_per_sec": float(
+                self.observed_evaluations / elapsed
+            ),
+            "validation_search_trace": str(self.trace_path) if self.trace_path else None,
+        }
+
+
+def _predict_sympy_candidate(expr, X, variable_names):
+    import sympy as sp
+
+    symbols = sp.symbols(" ".join(variable_names))
+    if len(variable_names) == 1:
+        symbols = (symbols,)
+    locals_map = {
+        **{str(sym): sym for sym in symbols},
+        "sin": sp.sin,
+        "cos": sp.cos,
+        "tan": sp.tan,
+        "exp": sp.exp,
+        "log": sp.log,
+        "sqrt": sp.sqrt,
+        "abs": sp.Abs,
+        "Abs": sp.Abs,
+        "sign": sp.sign,
+    }
+    parsed = sp.sympify(str(expr).replace("^", "**"), locals=locals_map)
+    fn = sp.lambdify(symbols, parsed, modules=["numpy"])
+    pred = np.asarray(fn(*[X[:, i] for i in range(X.shape[1])]), dtype=float)
+    if pred.shape == ():
+        pred = np.full(X.shape[0], float(pred), dtype=float)
+    pred = pred.reshape(-1)
+    if len(pred) != len(X) or not np.all(np.isfinite(pred)):
+        raise ValueError("candidate produced invalid validation predictions")
+    return pred
 
 def sanitize_name(text: str) -> str:
     text = str(text).replace("/", "__").replace("\\", "__")
@@ -205,11 +352,50 @@ def fit_gplearn(train_df, val_df, test_df, config_path, random_state=None):
         random_state=random_state,
     )
 
-    model = SymbolicRegressor(**kwargs)
+    tracker = SearchEfficiencyTracker("gplearn")
+
+    class TracedSymbolicRegressor(SymbolicRegressor):
+        def _verbose_reporter(self, run_details=None):
+            if run_details is None or not getattr(self, "_programs", None):
+                return
+            generation = int(run_details["generation"][-1])
+            population = self._programs[-1]
+            native_generation_end = int((generation + 1) * self.population_size)
+            for candidate_index, program in enumerate(population, start=1):
+                if program is None:
+                    continue
+                try:
+                    pred = np.asarray(program.execute(X_val), dtype=float).reshape(-1)
+                    hit = tracker.observe(
+                        str(program),
+                        (y_val, pred),
+                        stage=f"generation_{generation}",
+                        native_evaluations=native_generation_end,
+                        extra={
+                            "generation": generation,
+                            "population_index": candidate_index,
+                            "program_length": getattr(program, "length_", None),
+                            "program_depth": getattr(program, "depth_", None),
+                        },
+                    )
+                except Exception:
+                    continue
+                if hit:
+                    self._validation_hit_program = program
+                    raise ValidationSearchHit
+
+    # gplearn only invokes its generation callback in verbose mode. The
+    # subclass suppresses console reporting and uses it for candidate tracing.
+    kwargs["verbose"] = 1
+    kwargs["low_memory"] = False
+    model = TracedSymbolicRegressor(**kwargs)
     _patch_gplearn_validate_data(model)
     fit_start = time.time()
-    with _time_limit(runtime_config.get("max_fit_seconds")):
-        model.fit(fit_X_train, fit_y_train)
+    try:
+        with _time_limit(runtime_config.get("max_fit_seconds")):
+            model.fit(fit_X_train, fit_y_train)
+    except ValidationSearchHit:
+        model._program = model._validation_hit_program
     fit_sec = time.time() - fit_start
 
     pred_train = model.predict(X_train)
@@ -244,6 +430,11 @@ def fit_gplearn(train_df, val_df, test_df, config_path, random_state=None):
         "max_fit_seconds": runtime_config.get("max_fit_seconds"),
     }
     metrics.update(expression_complexity(model, expr))
+    metrics.update(tracker.metrics())
+    metrics["validation_search_count_semantics"] = (
+        "population-order candidate checks; native hit count is the end of the "
+        "generation because the full generation is generated before validation"
+    )
     return metrics
 
 
@@ -363,25 +554,111 @@ def fit_pysr(train_df, val_df, test_df, config_path, random_state=None):
     X_val, y_val, _ = dataframe_to_xy(val_df)
     X_test, y_test, _ = dataframe_to_xy(test_df)
     config = load_yaml_config(config_path)
+    data_config = dict(config.get("data", {}))
+    fit_X_train, fit_y_train, train_subsampled = _sample_xy_rows(
+        X_train,
+        y_train,
+        data_config.get("max_train_rows"),
+        random_state=random_state,
+    )
     kwargs = dict(config.get("fit", config.get("model", {}).get("kwargs", {})))
     _set_default_random_state(kwargs, random_state)
-
+    target_iterations = int(kwargs.pop("niterations", 100))
+    case_timeout = kwargs.pop("timeout_in_seconds", None)
+    # PySR validates names against Julia functions (for example, ``N`` and
+    # ``Si`` are reserved).  Stable synthetic names avoid dataset-dependent
+    # startup failures while preserving the feature order used for scoring.
+    variable_names = [f"x{i}" for i in range(X_train.shape[1])]
+    # Keep the timeout inside the Julia search as well as around the Python
+    # call.  A Python signal cannot reliably interrupt a long native Julia
+    # call, which previously let the outer supervisor kill the process before
+    # PySR could return and serialize its Hall-of-Fame.
+    if case_timeout is not None:
+        kwargs["timeout_in_seconds"] = float(case_timeout)
+    ncycles = int(
+        kwargs.get("ncycles_per_iteration", kwargs.get("ncyclesperiteration", 380))
+    )
+    populations = int(kwargs.get("populations", 31))
+    population_size = int(kwargs.get("population_size", 27))
+    nominal_evals_per_iteration = int(
+        populations * math.ceil(population_size / 10.0) * ncycles
+    )
+    kwargs["niterations"] = 1
+    kwargs["warm_start"] = True
+    tracker = SearchEfficiencyTracker("pysr")
     model = PySRRegressor(**kwargs)
     fit_start = time.time()
+    completed_iterations = 0
+    fit_timeout_recovered = False
     try:
-        model.fit(X_train, y_train, variable_names=[str(x) for x in feature_cols])
-    except TypeError:
-        model.fit(X_train, y_train)
+        with _time_limit(case_timeout):
+            for iteration in range(1, target_iterations + 1):
+                try:
+                    model.fit(
+                        fit_X_train,
+                        fit_y_train,
+                        variable_names=variable_names,
+                    )
+                except TypeError:
+                    model.fit(fit_X_train, fit_y_train)
+                completed_iterations = iteration
+                equations = getattr(model, "equations_", None)
+                if equations is None:
+                    continue
+                native_evaluations = int(iteration * nominal_evals_per_iteration)
+                for rank, (_, row) in enumerate(equations.iterrows(), start=1):
+                    expr = row.get("sympy_format", row.get("equation"))
+                    try:
+                        pred = _predict_sympy_candidate(
+                            expr,
+                            X_val,
+                            variable_names,
+                        )
+                        hit = tracker.observe(
+                            expr,
+                            (y_val, pred),
+                            stage=f"iteration_{iteration}_hall_of_fame",
+                            native_evaluations=native_evaluations,
+                            extra={
+                                "iteration": iteration,
+                                "hall_of_fame_rank": rank,
+                                "complexity": row.get("complexity"),
+                                "training_loss": row.get("loss"),
+                            },
+                        )
+                    except Exception:
+                        continue
+                    if hit:
+                        break
+                if tracker.first_hit:
+                    break
+                if case_timeout is not None and time.time() - fit_start >= float(case_timeout):
+                    break
+    except TimeoutError:
+        # PySR writes its Hall-of-Fame during the search.  Reaching the
+        # benchmark time budget should freeze and score that final available
+        # output, not discard the entire run as if no expression existed.
+        equations = getattr(model, "equations_", None)
+        if equations is None or len(equations) == 0:
+            raise
+        fit_timeout_recovered = True
     fit_sec = time.time() - fit_start
-    expr = _pysr_best_expr(model)
+    expr = (
+        tracker.first_hit.get("expression")
+        if tracker.first_hit
+        else _pysr_best_expr(model)
+    )
     equations = getattr(model, "equations_", None)
     num_candidates = len(equations) if equations is not None else None
-    return _metric_dict(
+    pred_train = _predict_sympy_candidate(expr, X_train, variable_names)
+    pred_val = _predict_sympy_candidate(expr, X_val, variable_names)
+    pred_test = _predict_sympy_candidate(expr, X_test, variable_names)
+    metrics = _metric_dict(
         "pysr",
         expr,
-        model.predict(X_train),
-        model.predict(X_val),
-        model.predict(X_test),
+        pred_train,
+        pred_val,
+        pred_test,
         y_train,
         y_val,
         y_test,
@@ -389,6 +666,19 @@ def fit_pysr(train_df, val_df, test_df, config_path, random_state=None):
         fit_sec,
         num_candidates=num_candidates,
     )
+    metrics.update(tracker.metrics())
+    metrics.update({
+        "fit_n_train": int(len(fit_X_train)),
+        "fit_train_subsampled": bool(train_subsampled),
+        "pysr_completed_iterations": int(completed_iterations),
+        "pysr_fit_timeout_recovered": bool(fit_timeout_recovered),
+        "pysr_nominal_evaluations_per_iteration": int(nominal_evals_per_iteration),
+        "validation_search_count_semantics": (
+            "Hall-of-Fame candidates checked after each PySR iteration; native "
+            "evaluation count is the documented iteration-level nominal upper bound"
+        ),
+    })
+    return metrics
 
 
 def _ffx_best_expr(model):
@@ -635,6 +925,41 @@ def fit_psrn(train_df, val_df, test_df, config_path, random_state=None):
         token_generator=token_generator,
         device=device,
     )
+    tracker = SearchEfficiencyTracker("psrn")
+    original_pareto_update = regressor.pareto_update_and_check
+
+    def traced_pareto_update(new_samples):
+        should_stop = original_pareto_update(new_samples)
+        for candidate_rank, candidate in enumerate(new_samples, start=1):
+            expr = str(candidate[0])
+            try:
+                pred = _predict_sympy_candidate(
+                    expr,
+                    X_val,
+                    [f"x{i}" for i in range(X_val.shape[1])],
+                )
+                native_evaluations = max(
+                    tracker.observed_evaluations + 1,
+                    len(getattr(regressor, "fitted_expr_c_set", set())),
+                )
+                hit = tracker.observe(
+                    expr,
+                    (y_val, pred),
+                    stage="fitted_pareto_candidate",
+                    native_evaluations=native_evaluations,
+                    extra={
+                        "candidate_batch_rank": candidate_rank,
+                        "training_mse": candidate[2] if len(candidate) > 2 else None,
+                        "complexity": candidate[3] if len(candidate) > 3 else None,
+                    },
+                )
+            except Exception:
+                continue
+            if hit:
+                raise ValidationSearchHit
+        return should_stop
+
+    regressor.pareto_update_and_check = traced_pareto_update
 
     def _sanitize_psrn_expr_text(value):
         if not isinstance(value, str):
@@ -698,16 +1023,29 @@ def fit_psrn(train_df, val_df, test_df, config_path, random_state=None):
         metrics = None
         skipped_expr_errors = []
         original_expression = getattr(regressor, "expression", None)
-        for candidate in pareto_by_mse:
+        selection_candidates = list(pareto_by_mse)
+        if tracker.first_hit:
+            hit_expr = tracker.first_hit.get("expression")
+            selection_candidates = [
+                (hit_expr, None, None, None),
+                *[candidate for candidate in selection_candidates if str(candidate[0]) != hit_expr],
+            ]
+        for candidate in selection_candidates:
             expr = str(candidate[0])
             try:
                 regressor.expression = expr
                 candidate_metrics = _metric_dict(
                     "psrn",
                     expr,
-                    regressor.predict(X_train),
-                    regressor.predict(X_val),
-                    regressor.predict(X_test),
+                    _predict_sympy_candidate(
+                        expr, X_train, [f"x{i}" for i in range(X_train.shape[1])]
+                    ),
+                    _predict_sympy_candidate(
+                        expr, X_val, [f"x{i}" for i in range(X_val.shape[1])]
+                    ),
+                    _predict_sympy_candidate(
+                        expr, X_test, [f"x{i}" for i in range(X_test.shape[1])]
+                    ),
                     y_train,
                     y_val,
                     y_test,
@@ -740,7 +1078,12 @@ def fit_psrn(train_df, val_df, test_df, config_path, random_state=None):
         "psrn_device": str(device),
         "psrn_time_limit": int(stage_config["default"]["time_limit"]),
         "psrn_expr_power_sanitizer": bool(sanitize_psrn_powers),
+        "validation_search_count_semantics": (
+            "constant-fitted PSRN/PSE candidates entering Pareto evaluation; "
+            "native tensor enumeration size is reported separately when available"
+        ),
     })
+    metrics.update(tracker.metrics())
     return metrics
 
 
@@ -837,11 +1180,48 @@ def fit_dso(train_df, val_df, test_df, config_path, random_state=None):
     }
     _deep_update_dict(dso_config, dict(config.get("dso", {})))
 
+    dso_config["task"]["dataset"] = (fit_X_train, fit_y_train)
     model = DeepSymbolicRegressor(dso_config)
+    tracker = SearchEfficiencyTracker("dso")
     fit_start = time.time()
     max_fit_seconds = runtime_config.get("max_fit_seconds")
+    hit_program = None
+    seen_cache_keys = set()
     with _time_limit(max_fit_seconds):
-        model.fit(fit_X_train, fit_y_train)
+        model.setup()
+        from dso.program import Program
+
+        while not model.trainer.done:
+            model.train_one_step()
+            native_evaluations = int(model.trainer.nevals)
+            for cache_key, program in list(Program.cache.items()):
+                if cache_key in seen_cache_keys:
+                    continue
+                seen_cache_keys.add(cache_key)
+                try:
+                    pred = np.asarray(program.execute(X_val), dtype=float).reshape(-1)
+                    hit = tracker.observe(
+                        str(getattr(program, "sympy_expr", None) or program.pretty()),
+                        (y_val, pred),
+                        stage=f"batch_{model.trainer.iteration}",
+                        native_evaluations=native_evaluations,
+                        extra={
+                            "training_iteration": int(model.trainer.iteration),
+                            "program_reward": getattr(program, "r", None),
+                        },
+                    )
+                except Exception:
+                    continue
+                if hit:
+                    hit_program = program
+                    break
+            if hit_program is not None:
+                break
+    if hit_program is None:
+        hit_program = model.trainer.p_r_best
+    model.program_ = hit_program
+    if not model.trainer.done and model.pool is not None:
+        model.pool.close()
     fit_sec = time.time() - fit_start
     expr = str(getattr(model.program_, "sympy_expr", None) or model.program_.pretty())
     metrics = _metric_dict(
@@ -861,7 +1241,12 @@ def fit_dso(train_df, val_df, test_df, config_path, random_state=None):
         "fit_n_train": int(len(fit_X_train)),
         "fit_train_subsampled": bool(train_subsampled),
         "max_fit_seconds": max_fit_seconds,
+        "validation_search_count_semantics": (
+            "all newly cached DSO programs checked after each sampled batch; "
+            "native hit count is the trainer nevals value at the batch boundary"
+        ),
     })
+    metrics.update(tracker.metrics())
     return metrics
 
 
@@ -1302,7 +1687,7 @@ def collect_tasks(benchmark: str):
         return mod, mod.collect_sldbench_tasks()
     if benchmark == "llmsrbench":
         mod = import_script_module("cpu_llmsrbench_loader", SCRIPT_DIR / "run_llmsrbench.py")
-        if not os.path.exists(mod.LLMSRBENCH_HDF5):
+        if not mod.LLMSRBENCH_CASES_ROOT and not os.path.exists(mod.LLMSRBENCH_HDF5):
             raise FileNotFoundError(f"hdf5 not found: {mod.LLMSRBENCH_HDF5}")
         return mod, mod.collect_llmsrbench_tasks()
     if benchmark == "srbench":
@@ -1342,7 +1727,7 @@ def load_case(benchmark: str, mod, row):
         return train_df, val_df, test_df, meta
 
     if benchmark == "llmsrbench":
-        train_df, val_df, test_df, extra = mod.load_llmsrbench_case_from_hdf5(row)
+        train_df, val_df, test_df, extra = mod.load_llmsrbench_case(row)
         meta = {
             "task_type": "llmsrbench",
             "dataset_dir": "llmsrbench",
@@ -1526,6 +1911,7 @@ def estimate_case_subprocess_timeout(config_path: str):
         ("runtime", "max_fit_seconds"),
         ("run", "max_fit_seconds"),
         ("fit", "timeout_in_seconds"),
+        ("fit", "time_limit"),
     ]:
         value = dict(config.get(section, {})).get(key)
         if value:
@@ -1547,6 +1933,50 @@ def read_log_tail(path: Path, max_chars: int = CASE_LOG_TAIL_CHARS):
     if max_chars > 0 and len(data) > max_chars:
         data = data[-max_chars:]
     return data.decode("utf-8", errors="replace")
+
+
+def read_efficiency_trace_metrics(path: Path):
+    if not path.exists():
+        return {}
+    opener = gzip.open if path.suffix == ".gz" else open
+    last = None
+    first_hit = None
+    best = None
+    try:
+        with opener(path, "rt", encoding="utf-8") as fp:
+            for line in fp:
+                event = json.loads(line)
+                last = event
+                if event.get("validation_success") and first_hit is None:
+                    first_hit = event
+                r2 = event.get("validation_r2")
+                if r2 is not None and (best is None or r2 > best.get("validation_r2", -math.inf)):
+                    best = event
+    except Exception:
+        # A hard timeout may leave the final gzip footer unwritten. Events
+        # yielded before the truncated tail are still valid observations.
+        pass
+    if last is None:
+        return {}
+    hit = first_hit or {}
+    return {
+        "validation_search_threshold": float(SEARCH_EFFICIENCY_THRESHOLD),
+        "validation_search_rule": "strictly_greater",
+        "validation_search_success": bool(first_hit),
+        "evaluations_to_validation_success": hit.get("candidate_index"),
+        "unique_evaluations_to_validation_success": hit.get("unique_candidate_index"),
+        "native_evaluations_to_validation_success": hit.get("native_evaluations"),
+        "first_validation_success_stage": hit.get("stage"),
+        "first_validation_success_expression": hit.get("expression"),
+        "first_validation_success_r2": hit.get("validation_r2"),
+        "first_validation_success_elapsed_sec": hit.get("elapsed_sec"),
+        "validation_search_observed_evaluations": last.get("candidate_index"),
+        "validation_search_unique_evaluations": last.get("unique_candidate_index"),
+        "validation_search_native_evaluations": last.get("native_evaluations"),
+        "validation_search_best_r2": (best or {}).get("validation_r2"),
+        "validation_search_best_expression": (best or {}).get("expression"),
+        "validation_search_trace": str(path),
+    }
 
 
 def terminate_process_group(pgid: int, grace_sec: float = 10.0):
@@ -1608,6 +2038,9 @@ def run_single_case_child(args, mod, df_tasks, config_path: str):
     )
     res["completed_index"] = int(idx)
     res["total_tasks"] = int(len(df_tasks))
+    configured_budget = os.environ.get("CPU_SR_CONFIGURED_WALL_BUDGET_SEC")
+    if configured_budget is not None:
+        res["configured_wall_budget_sec"] = float(configured_budget)
     print_one_result(args.benchmark, idx, len(df_tasks), row, res)
     if args.single_result_json:
         with open(args.single_result_json, "w", encoding="utf-8") as fp:
@@ -1621,10 +2054,18 @@ def run_isolated_case(args, idx: int, total: int, row, config_path: str, results
     case_slug = sanitize_name(case_name or f"case_{idx}")
     case_log_dir = Path(results_root) / "case_logs"
     case_result_dir = Path(results_root) / "case_results"
+    case_trace_dir = Path(results_root) / "candidate_traces"
     case_log_dir.mkdir(parents=True, exist_ok=True)
     case_result_dir.mkdir(parents=True, exist_ok=True)
+    case_trace_dir.mkdir(parents=True, exist_ok=True)
     case_log = case_log_dir / f"{idx:04d}_{case_slug}.log"
     result_json = case_result_dir / f"{idx:04d}_{case_slug}.json"
+    trace_path = case_trace_dir / f"{idx:04d}_{case_slug}.jsonl.gz"
+    if args.resume and result_json.exists():
+        with open(result_json, "r", encoding="utf-8") as fp:
+            res = json.load(fp)
+        res["resumed_existing_result"] = True
+        return json_safe_record(res)
     if result_json.exists():
         result_json.unlink()
 
@@ -1652,6 +2093,7 @@ def run_isolated_case(args, idx: int, total: int, row, config_path: str, results
     timeout_sec = estimate_case_subprocess_timeout(config_path)
     env = os.environ.copy()
     env["CPU_SR_CHILD_CASE"] = "1"
+    env["CPU_SR_SEARCH_EFFICIENCY_TRACE"] = str(trace_path)
 
     print(f"   isolated_case_log:   {case_log}", flush=True)
     try:
@@ -1686,10 +2128,25 @@ def run_isolated_case(args, idx: int, total: int, row, config_path: str, results
             f"isolated child exceeded outer timeout {timeout_sec:.1f}s; log_tail={tail}",
         )
 
+    trace_metrics = read_efficiency_trace_metrics(trace_path)
+    for key, value in trace_metrics.items():
+        if res.get(key) is None:
+            res[key] = value
     res["completed_index"] = int(idx)
     res["total_tasks"] = int(total)
     res["case_log_path"] = str(case_log)
-    return json_safe_record(res)
+    configured_budget = os.environ.get("CPU_SR_CONFIGURED_WALL_BUDGET_SEC")
+    if configured_budget is not None:
+        res["configured_wall_budget_sec"] = float(configured_budget)
+    res = json_safe_record(res)
+    # Child crashes and outer timeouts are valid censored observations.  They
+    # must be persisted just like successful child results so --resume does
+    # not rerun them and downstream success-rate denominators remain correct.
+    tmp_result_json = result_json.with_suffix(result_json.suffix + ".tmp")
+    with open(tmp_result_json, "w", encoding="utf-8") as fp:
+        json.dump(res, fp, ensure_ascii=False, allow_nan=False, indent=2)
+    os.replace(tmp_result_json, result_json)
+    return res
 
 
 def print_one_result(benchmark: str, idx: int, total: int, row, res):
@@ -1806,6 +2263,7 @@ def get_argparser():
         action="store_true",
         help="Run each case in a child Python process so hard crashes are recorded per case.",
     )
+    parser.add_argument("--resume", action="store_true", help="Skip completed per-case result JSON files.")
     parser.add_argument("--single-case-index", type=int, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--single-result-json", default=None, help=argparse.SUPPRESS)
     return parser
@@ -1876,16 +2334,30 @@ def main():
         if args.isolate_cases:
             res = run_isolated_case(args, idx, total, row_dict, config_path, results_root)
         else:
-            res = run_one(
-                benchmark=args.benchmark,
-                method=args.method,
-                mod=mod,
-                row=row_dict,
-                config_path=config_path,
-                random_state=args.random_state,
-            )
-            res["completed_index"] = int(idx)
-            res["total_tasks"] = int(total)
+            case_slug = sanitize_name(row_case_name(args.benchmark, row_dict) or f"case_{idx}")
+            case_result_dir = Path(results_root) / "case_results"
+            case_result_dir.mkdir(parents=True, exist_ok=True)
+            result_json = case_result_dir / f"{idx:04d}_{case_slug}.json"
+            if args.resume and result_json.exists():
+                with open(result_json, "r", encoding="utf-8") as fp:
+                    res = json.load(fp)
+                res["resumed_existing_result"] = True
+            else:
+                res = run_one(
+                    benchmark=args.benchmark,
+                    method=args.method,
+                    mod=mod,
+                    row=row_dict,
+                    config_path=config_path,
+                    random_state=args.random_state,
+                )
+                res["completed_index"] = int(idx)
+                res["total_tasks"] = int(total)
+                safe_result = json_safe_record(res)
+                tmp_result_json = result_json.with_suffix(result_json.suffix + ".tmp")
+                with open(tmp_result_json, "w", encoding="utf-8") as fp:
+                    json.dump(safe_result, fp, ensure_ascii=False, allow_nan=False, indent=2)
+                os.replace(tmp_result_json, result_json)
         all_results.append(res)
         print_one_result(args.benchmark, idx, total, row_dict, res)
         pd.DataFrame([json_safe_record(r) for r in all_results]).to_csv(results_csv, index=False)

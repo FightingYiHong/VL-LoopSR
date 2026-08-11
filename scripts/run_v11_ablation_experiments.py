@@ -34,6 +34,16 @@ import pandas as pd
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.benchmark_metrics import (
+    NUMERICAL_FIT_R2_THRESHOLD,
+    evaluate_expression,
+    expression_complexity as shared_expression_complexity,
+    regression_metrics,
+    srbench_formula_recovery,
+    strict_formula_recovery,
+)
+
 DEFAULT_V11_PATH = ROOT / "scripts" / "test_fey_v11_complexity_exact.py"
 DEFAULT_DATASET_ROOT = ROOT / "data" / "v11_balanced_component_ablation_96"
 
@@ -136,6 +146,26 @@ METHODS: dict[str, MethodConfig] = {
         description="rank candidates by fit/complexity without Observer-derived structure score",
     ),
 }
+
+
+def load_experiment_config(config_path: str | None) -> dict:
+    """Extend the static method table from a claim-validation config file."""
+    if not config_path:
+        return {}
+    path = Path(config_path)
+    if not path.exists():
+        raise FileNotFoundError(f"experiment config not found: {path}")
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    for key, value in dict(cfg.get("shared_env", {}) or {}).items():
+        os.environ[str(key)] = str(value)
+    for name, body in dict(cfg.get("method_variants", {}) or {}).items():
+        body = dict(body or {})
+        METHODS[str(name)] = MethodConfig(
+            name=str(name),
+            env={str(k): str(v) for k, v in dict(body.get("env", {}) or {}).items()},
+            description=str(body.get("description", name)),
+        )
+    return cfg
 
 
 def json_safe(value):
@@ -295,16 +325,8 @@ def import_v11_module(v11_path: Path, results_root: Path):
 
 
 def expr_complexity(expr) -> float | None:
-    if not isinstance(expr, str) or not expr.strip():
-        return None
-    try:
-        import sympy as sp
-
-        parsed = sp.sympify(expr)
-        return float(sp.count_ops(parsed, visual=False) + len(parsed.free_symbols))
-    except Exception:
-        tokens = [tok for tok in re.split(r"[^A-Za-z0-9_.]+", expr) if tok]
-        return float(len(tokens)) if tokens else None
+    value = shared_expression_complexity(expr).get("expr_complexity")
+    return float(value) if value is not None else None
 
 
 def variables_used(v11, expr: str | None, feature_names: list[str]) -> list[str]:
@@ -342,7 +364,14 @@ def family_signature(v11, expr: str | None, feature_names: list[str]) -> set[str
     return families
 
 
-def score_formula_result(v11, case: FormulaCase, result: dict) -> dict:
+def score_formula_result(
+    v11,
+    case: FormulaCase,
+    result: dict,
+    train_df: pd.DataFrame | None = None,
+    val_df: pd.DataFrame | None = None,
+    test_df: pd.DataFrame | None = None,
+) -> dict:
     best_expr = result.get("best_expr")
     active = variables_used(v11, best_expr, case.feature_names)
     active_set = set(active)
@@ -351,21 +380,107 @@ def score_formula_result(v11, case: FormulaCase, result: dict) -> dict:
     candidate_families = family_signature(v11, best_expr, case.feature_names)
     true_families = family_signature(v11, case.true_expression, case.feature_names)
     family_overlap = len(candidate_families & true_families) / max(1, len(true_families))
-    exact_recovery = bool(active_set == true_set and test_mse <= EXACT_MSE_THRESHOLD)
+    exact_recovery_proxy = bool(active_set == true_set and test_mse <= EXACT_MSE_THRESHOLD)
     skeleton_recovery = bool(active_set == true_set and family_overlap >= 0.6 and test_mse <= SKELETON_MSE_THRESHOLD)
+    strict_recovery = strict_formula_recovery(best_expr, case.true_expression, case.feature_names)
+    srbench_recovery = srbench_formula_recovery(best_expr, case.true_expression, case.feature_names)
+    metric_updates = {}
+    if best_expr and train_df is not None and val_df is not None and test_df is not None:
+        try:
+            for split_name, frame in (
+                ("train", train_df),
+                ("val", val_df),
+                ("test", test_df),
+            ):
+                predictions = evaluate_expression(best_expr, frame, case.feature_names)
+                metrics = regression_metrics(frame["y"].to_numpy(dtype=float), predictions)
+                for metric_name, metric_value in metrics.items():
+                    metric_updates[f"{split_name}_{metric_name}"] = metric_value
+        except Exception as exc:
+            metric_updates["final_expr_metric_eval_error"] = repr(exc)
+    test_r2 = metric_updates.get("test_r2", result.get("test_r2"))
     return {
         "active_variables": "|".join(active),
         "true_variables": "|".join(case.true_variables),
         "true_variable_recall": len(active_set & true_set) / max(1, len(true_set)),
         "false_variable_discovery_rate": len(active_set - true_set) / max(1, len(active_set)),
         "family_overlap": family_overlap,
-        "exact_recovery": exact_recovery,
+        "exact_recovery": bool(strict_recovery),
+        "strict_formula_recovery": bool(strict_recovery),
+        "strict_formula_recovery_evaluable": strict_recovery is not None,
+        "srbench_formula_recovery": bool(srbench_recovery),
+        "srbench_formula_recovery_evaluable": srbench_recovery is not None,
+        "exact_recovery_proxy": exact_recovery_proxy,
         "skeleton_recovery": skeleton_recovery,
+        "numerical_complete_fit": bool(
+            test_r2 is not None and float(test_r2) > NUMERICAL_FIT_R2_THRESHOLD
+        ),
         "passed": bool(test_mse <= PASS_MSE_THRESHOLD),
         "expr_complexity": result.get("expr_complexity") or expr_complexity(best_expr),
         "normalized_complexity": (result.get("expr_complexity") or expr_complexity(best_expr) or np.nan)
         / max(1.0, expr_complexity(case.true_expression) or 1.0),
+        **metric_updates,
     }
+
+
+def loads_json_maybe(value, default=None):
+    if default is None:
+        default = []
+    if value is None:
+        return default
+    if isinstance(value, (list, dict)):
+        return value
+    try:
+        return json.loads(str(value))
+    except Exception:
+        return default
+
+
+def extract_initial_best_row(result: dict) -> dict:
+    history = loads_json_maybe(result.get("evaluation_history"), default=[])
+    for item in history if isinstance(history, list) else []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("stage", "")) != "initial_evaluator":
+            continue
+        topk = item.get("topk") or []
+        if isinstance(topk, list) and topk:
+            row = dict(topk[0] or {})
+            expr = row.get("expr") or row.get("expression")
+            return {
+                "best_expr": expr,
+                "best_val_mse": row.get("val_mse"),
+                "best_test_mse": row.get("test_mse"),
+                "expr_complexity": row.get("complexity"),
+            }
+    return {"best_expr": None, "best_val_mse": None, "best_test_mse": None, "expr_complexity": None}
+
+
+def add_initial_metrics(v11, case, out: dict, scorer) -> None:
+    initial = extract_initial_best_row(out)
+    initial_candidate_count = out.get("num_candidate_exprs")
+    if initial_candidate_count is None:
+        raw_exprs = loads_json_maybe(out.get("raw_exprs"), default=[])
+        initial_candidate_count = len(raw_exprs) if isinstance(raw_exprs, list) else None
+
+    score_input = dict(initial)
+    score = scorer(v11, case, score_input)
+    out["initial_best_expr"] = initial.get("best_expr")
+    out["initial_best_val_mse"] = initial.get("best_val_mse")
+    out["initial_best_test_mse"] = initial.get("best_test_mse")
+    out["initial_candidate_count"] = initial_candidate_count
+    val = finite_float(initial.get("best_val_mse"))
+    out["log10_initial_best_val_mse"] = math.log10(max(val, 1e-300)) if val is not None else None
+    for key, value in score.items():
+        if key in {"true_variables", "proxy_variables", "nonlinear_decoy_variables"}:
+            out.setdefault(key, value)
+            continue
+        if key == "active_variables":
+            out["initial_active_variables"] = value
+        elif key == "expr_complexity":
+            out["initial_expr_complexity"] = value
+        else:
+            out[f"initial_{key}"] = value
 
 
 def finite_float(value, default=None):
@@ -596,10 +711,14 @@ def run_child(args) -> int:
                 from scripts.run_v11_high_dimensional_interference import score_result
 
             out["true_expression_for_scoring"] = getattr(case, "true_expression")
-            out.update(score_result(v11, case, out))
+            out.update(score_result(v11, case, out, train_df, val_df, test_df))
+            add_initial_metrics(v11, case, out, score_result)
         else:
             out["true_expression_for_scoring"] = getattr(case, "true_expression")
-            out.update(score_formula_result(v11, case, out))
+            out.update(score_formula_result(v11, case, out, train_df, val_df, test_df))
+            add_initial_metrics(v11, case, out, score_formula_result)
+        best_test = finite_float(out.get("best_test_mse"))
+        out["log10_best_test_mse"] = math.log10(max(best_test, 1e-300)) if best_test is not None else None
     except BaseException as exc:
         out = {
             "method": args.method,
@@ -652,6 +771,10 @@ def summarize(rows: list[dict], out_dir: Path):
         "timed_out",
         "passed",
         "exact_recovery",
+        "strict_formula_recovery",
+        "srbench_formula_recovery",
+        "numerical_complete_fit",
+        "exact_recovery_proxy",
         "skeleton_recovery",
         "true_variable_recall",
         "false_variable_discovery_rate",
@@ -659,6 +782,10 @@ def summarize(rows: list[dict], out_dir: Path):
         "nonlinear_decoy_misuse",
         "irrelevant_misuse",
         "best_test_mse",
+        "test_rmse",
+        "test_nmse",
+        "test_nrmse",
+        "test_r2",
         "expr_complexity",
         "normalized_complexity",
         "runtime_sec",
@@ -676,8 +803,14 @@ def summarize(rows: list[dict], out_dir: Path):
                 n=("case_index", "count"),
                 pass_rate=("passed", "mean"),
                 exact_recovery=("exact_recovery", "mean"),
+                strict_formula_recovery=("strict_formula_recovery", "mean"),
+                srbench_formula_recovery=("srbench_formula_recovery", "mean"),
+                numerical_complete_fit=("numerical_complete_fit", "mean"),
                 skeleton_recovery=("skeleton_recovery", "mean"),
                 median_test_mse=("best_test_mse", "median"),
+                median_test_rmse=("test_rmse", "median"),
+                median_test_nmse=("test_nmse", "median"),
+                median_test_nrmse=("test_nrmse", "median"),
                 median_complexity=("expr_complexity", "median"),
                 median_normalized_complexity=("normalized_complexity", "median"),
                 median_runtime_sec=("runtime_sec", "median"),
@@ -692,6 +825,9 @@ def summarize(rows: list[dict], out_dir: Path):
             timeout_rate=("timed_out", "mean"),
             pass_rate=("passed", "mean"),
             exact_recovery=("exact_recovery", "mean"),
+            strict_formula_recovery=("strict_formula_recovery", "mean"),
+            srbench_formula_recovery=("srbench_formula_recovery", "mean"),
+            numerical_complete_fit=("numerical_complete_fit", "mean"),
             skeleton_recovery=("skeleton_recovery", "mean"),
             true_variable_recall=("true_variable_recall", "mean"),
             false_variable_discovery_rate=("false_variable_discovery_rate", "mean"),
@@ -699,6 +835,9 @@ def summarize(rows: list[dict], out_dir: Path):
             nonlinear_decoy_misuse_rate=("nonlinear_decoy_misuse", "mean"),
             irrelevant_misuse_rate=("irrelevant_misuse", "mean"),
             median_test_mse=("best_test_mse", "median"),
+            median_test_rmse=("test_rmse", "median"),
+            median_test_nmse=("test_nmse", "median"),
+            median_test_nrmse=("test_nrmse", "median"),
             median_complexity=("expr_complexity", "median"),
             median_normalized_complexity=("normalized_complexity", "median"),
             median_runtime_sec=("runtime_sec", "median"),
@@ -825,101 +964,116 @@ def run_parent(args) -> int:
     )
 
     rows: list[dict] = []
-    total = len(method_names) * len(case_names)
+    if args.interleave_methods:
+        schedule = [
+            (method, case_index, case_name)
+            for case_index, case_name in enumerate(case_names, start=1)
+            for method in method_names
+        ]
+    else:
+        schedule = [
+            (method, case_index, case_name)
+            for method in method_names
+            for case_index, case_name in enumerate(case_names, start=1)
+        ]
+    total = len(schedule)
     done = 0
-    for method in method_names:
-        for case_index, case_name in enumerate(case_names, start=1):
-            done += 1
-            safe = sanitize_name(f"{method}_{case_index:03d}_{case_name}_seed{args.repeat_seed}")
-            result_json = result_dir / method / f"{safe}.json"
-            log_path = log_dir / method / f"{safe}.log"
-            result_json.parent.mkdir(parents=True, exist_ok=True)
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            if args.resume and result_json.exists():
-                cached = json.loads(result_json.read_text(encoding="utf-8"))
-                should_rerun = bool(args.rerun_timeouts and cached.get("timed_out"))
-                should_rerun = should_rerun or bool(args.rerun_failures and not cached.get("valid_formula_found"))
-                if not should_rerun:
-                    rows.append(cached)
-                    continue
+    for method, case_index, case_name in schedule:
+        done += 1
+        safe = sanitize_name(f"{method}_{case_index:03d}_{case_name}_seed{args.repeat_seed}")
+        result_json = result_dir / method / f"{safe}.json"
+        log_path = log_dir / method / f"{safe}.log"
+        result_json.parent.mkdir(parents=True, exist_ok=True)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        if args.resume and result_json.exists():
+            cached = json.loads(result_json.read_text(encoding="utf-8"))
+            should_rerun = bool(args.rerun_timeouts and cached.get("timed_out"))
+            should_rerun = should_rerun or bool(args.rerun_failures and not cached.get("valid_formula_found"))
+            if not should_rerun:
+                rows.append(cached)
+                continue
 
-            cmd = [
-                sys.executable,
-                str(Path(__file__).resolve()),
-                "--child",
-                "--suite",
-                args.suite,
-                "--method",
-                method,
-                "--out-dir",
-                str(out_dir),
-                "--v11-path",
-                str(args.v11_path),
-                "--case-index",
-                str(case_index),
-                "--repeat-seed",
-                str(args.repeat_seed),
-                "--n-train",
-                str(args.n_train),
-                "--n-val",
-                str(args.n_val),
-                "--n-test",
-                str(args.n_test),
-                "--case-budget-sec",
-                str(args.case_budget_sec),
-                "--timeout-grace-sec",
-                str(args.timeout_grace_sec),
-                "--max-cases",
-                str(args.max_cases or 0),
-                "--random-state",
-                str(args.random_state),
-                "--noise-levels",
-                str(args.noise_levels),
-                "--dataset-root",
-                str(args.dataset_root),
-                "--single-result-json",
-                str(result_json),
-            ]
-            if getattr(args, "target_component", ""):
-                cmd.extend(["--target-component", str(args.target_component)])
-            child_env = os.environ.copy()
-            child_env.setdefault("PYTHONUNBUFFERED", "1")
-            child_env["LLMSR_MAX_RUNTIME_PER_TASK_SEC"] = str(args.case_budget_sec)
-            child_env.update(METHODS[method].env)
-            started = time.time()
-            print(f"[RUN {done}/{total}] suite={args.suite} method={method} case={case_name}", flush=True)
-            with open(log_path, "w", encoding="utf-8") as log_fp:
-                try:
-                    subprocess.run(
-                        cmd,
-                        stdout=log_fp,
-                        stderr=subprocess.STDOUT,
-                        timeout=parent_timeout_sec,
-                        check=False,
-                        env=child_env,
-                    )
-                except subprocess.TimeoutExpired:
-                    row = timeout_row(args, method, case_index, case_name, time.time() - started, log_path, parent_timeout_sec)
-                    rows.append(row)
-                    result_json.write_text(json.dumps(json_safe(row), ensure_ascii=False, indent=2), encoding="utf-8")
-                    summarize(rows, out_dir)
-                    print(f"[TIMEOUT {done}/{total}] sec={time.time() - started:.1f}", flush=True)
-                    continue
-            if result_json.exists():
-                row = json.loads(result_json.read_text(encoding="utf-8"))
-            else:
-                row = {
-                    **timeout_row(args, method, case_index, case_name, time.time() - started, log_path, parent_timeout_sec),
-                    "timed_out": False,
-                    "error": f"child exited without result; see {log_path}",
-                }
-            rows.append(row)
-            summarize(rows, out_dir)
-            print(
-                f"[DONE {done}/{total}] timeout={row.get('timed_out')} "
-                f"skeleton={row.get('skeleton_recovery')} mse={row.get('best_test_mse')} sec={row.get('runtime_sec')}",
-                flush=True,
-            )
+        cmd = [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--child",
+            "--suite",
+            args.suite,
+            "--method",
+            method,
+            "--out-dir",
+            str(out_dir),
+            "--v11-path",
+            str(args.v11_path),
+            "--case-index",
+            str(case_index),
+            "--repeat-seed",
+            str(args.repeat_seed),
+            "--n-train",
+            str(args.n_train),
+            "--n-val",
+            str(args.n_val),
+            "--n-test",
+            str(args.n_test),
+            "--case-budget-sec",
+            str(args.case_budget_sec),
+            "--timeout-grace-sec",
+            str(args.timeout_grace_sec),
+            "--max-cases",
+            str(args.max_cases or 0),
+            "--random-state",
+            str(args.random_state),
+            "--noise-levels",
+            str(args.noise_levels),
+            "--dataset-root",
+            str(args.dataset_root),
+            "--single-result-json",
+            str(result_json),
+        ]
+        if getattr(args, "experiment_config", ""):
+            cmd.extend(["--experiment-config", str(args.experiment_config)])
+        if getattr(args, "target_component", ""):
+            cmd.extend(["--target-component", str(args.target_component)])
+        child_env = os.environ.copy()
+        child_env.setdefault("PYTHONUNBUFFERED", "1")
+        child_env.setdefault("PYTHONHASHSEED", str(args.repeat_seed))
+        child_env["LLMSR_REPEAT_SEED"] = str(args.repeat_seed)
+        child_env["LLMSR_MAX_RUNTIME_PER_TASK_SEC"] = str(args.case_budget_sec)
+        child_env.update(METHODS[method].env)
+        started = time.time()
+        print(f"[RUN {done}/{total}] suite={args.suite} method={method} case={case_name}", flush=True)
+        with open(log_path, "w", encoding="utf-8") as log_fp:
+            try:
+                subprocess.run(
+                    cmd,
+                    stdout=log_fp,
+                    stderr=subprocess.STDOUT,
+                    timeout=parent_timeout_sec,
+                    check=False,
+                    env=child_env,
+                )
+            except subprocess.TimeoutExpired:
+                row = timeout_row(args, method, case_index, case_name, time.time() - started, log_path, parent_timeout_sec)
+                rows.append(row)
+                result_json.write_text(json.dumps(json_safe(row), ensure_ascii=False, indent=2), encoding="utf-8")
+                summarize(rows, out_dir)
+                print(f"[TIMEOUT {done}/{total}] sec={time.time() - started:.1f}", flush=True)
+                continue
+        if result_json.exists():
+            row = json.loads(result_json.read_text(encoding="utf-8"))
+        else:
+            row = {
+                **timeout_row(args, method, case_index, case_name, time.time() - started, log_path, parent_timeout_sec),
+                "timed_out": False,
+                "error": f"child exited without result; see {log_path}",
+            }
+        rows.append(row)
+        summarize(rows, out_dir)
+        print(
+            f"[DONE {done}/{total}] timeout={row.get('timed_out')} "
+            f"skeleton={row.get('skeleton_recovery')} mse={row.get('best_test_mse')} sec={row.get('runtime_sec')}",
+            flush=True,
+        )
     summarize(rows, out_dir)
     return 0
 
@@ -942,6 +1096,8 @@ def parse_args():
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument("--noise-levels", default="0 0.001 0.01")
     parser.add_argument("--dataset-root", default="")
+    parser.add_argument("--experiment-config", default="", help="Optional JSON config that contributes method variants and shared env.")
+    parser.add_argument("--interleave-methods", action="store_true", help="Run all methods for a case before moving to the next case.")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--rerun-timeouts", action="store_true")
     parser.add_argument("--rerun-failures", action="store_true")
@@ -957,6 +1113,7 @@ def parse_args():
 
 def main():
     args = parse_args()
+    load_experiment_config(args.experiment_config)
     if args.child:
         return run_child(args)
     return run_parent(args)

@@ -23,6 +23,12 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from benchmark_metrics import (
+    NUMERICAL_FIT_R2_THRESHOLD,
+    evaluate_expression,
+    expression_complexity as shared_expression_complexity,
+    regression_metrics,
+)
 from run_strict_extrapolation_cpu_baselines import json_safe, make_split
 from run_surfacebench_strict_cpu_baselines import list_surface_cases, load_surface_split
 
@@ -37,16 +43,8 @@ def sanitize_name(text: str) -> str:
 
 
 def expr_complexity(expr) -> float | None:
-    if not isinstance(expr, str) or not expr.strip():
-        return None
-    try:
-        import sympy as sp
-
-        parsed = sp.sympify(expr)
-        return float(sp.count_ops(parsed, visual=False) + len(parsed.free_symbols))
-    except Exception:
-        tokens = [tok for tok in re.split(r"[^A-Za-z0-9_.]+", expr) if tok]
-        return float(len(tokens)) if tokens else None
+    value = shared_expression_complexity(expr).get("expr_complexity")
+    return float(value) if value is not None else None
 
 
 def import_v11_module(v11_path: Path, results_root: Path):
@@ -130,7 +128,7 @@ def surface_cases(path: Path, max_cases: int | None):
 
 def load_case_split(args):
     if args.suite == "constructed":
-        _, train_df, val_df, test_df, meta = make_split(
+        case, train_df, val_df, test_df, meta = make_split(
             args.case_index - 1,
             args.repeat_seed,
             args.n_train,
@@ -145,7 +143,7 @@ def load_case_split(args):
             "true_expression": None,
             **meta,
         }
-        return train_df, val_df, test_df, row_meta
+        return train_df, val_df, test_df, row_meta, case
 
     cases = list_surface_cases(Path(args.surfacebench_path), max_cases=args.max_cases)
     case = cases[args.case_index - 1]
@@ -165,7 +163,33 @@ def load_case_split(args):
         "true_expression": None,
         **meta,
     }
-    return train_df, val_df, test_df, row_meta
+    return train_df, val_df, test_df, row_meta, None
+
+
+def evaluate_range_expansions(case, train_df, expression, factors, n_samples, seed):
+    if case is None or not expression:
+        return {}
+    feature_names = [column for column in train_df.columns if column != "y"]
+    train_x = train_df[feature_names].to_numpy(dtype=float)
+    lower = np.min(train_x, axis=0)
+    upper = np.max(train_x, axis=0)
+    center = (lower + upper) / 2.0
+    half_width = np.maximum((upper - lower) / 2.0, 1e-12)
+    rng = np.random.default_rng(seed)
+    output = {}
+    for factor in factors:
+        expanded_lower = center - half_width * float(factor)
+        expanded_upper = center + half_width * float(factor)
+        x_values = rng.uniform(expanded_lower, expanded_upper, size=(int(n_samples), len(feature_names)))
+        y_values = np.asarray(case.fn(x_values), dtype=float)
+        frame = pd.DataFrame(x_values, columns=feature_names)
+        frame["y"] = y_values
+        predictions = evaluate_expression(expression, frame, feature_names)
+        metrics = regression_metrics(y_values, predictions)
+        label = int(round(float(factor) * 100))
+        for metric_name, metric_value in metrics.items():
+            output[f"range_{label}_{metric_name}"] = metric_value
+    return output
 
 
 def run_child(args) -> int:
@@ -174,7 +198,7 @@ def run_child(args) -> int:
     result_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         v11 = import_v11_module(Path(args.v11_path), Path(args.out_dir))
-        train_df, val_df, test_df, row_meta = load_case_split(args)
+        train_df, val_df, test_df, row_meta, constructed_case = load_case_split(args)
         with TemporaryDirectory(prefix="v11_extrap_tmp_") as tmpdir_str:
             dataset = v11.build_dataset_from_explicit_splits(
                 train_df=train_df,
@@ -201,6 +225,53 @@ def run_child(args) -> int:
                 "extrapolation_r2": out.get("test_r2"),
             }
         )
+        feature_names = [column for column in train_df.columns if column != "y"]
+        for split_name, frame in (
+            ("train", train_df),
+            ("id", val_df),
+            ("ood", test_df),
+        ):
+            predictions = evaluate_expression(out.get("best_expr"), frame, feature_names)
+            metrics = regression_metrics(frame["y"].to_numpy(dtype=float), predictions)
+            for metric_name, metric_value in metrics.items():
+                out[f"{split_name}_{metric_name}"] = metric_value
+        out["extrapolation_mse"] = out.get("ood_mse")
+        out["extrapolation_r2"] = out.get("ood_r2")
+        out["ood_negative_r2"] = bool(
+            out.get("ood_r2") is not None and float(out["ood_r2"]) < 0.0
+        )
+        out["ood_nonfinite_prediction"] = False
+        out["ood_id_nmse_ratio"] = (
+            float(out["ood_nmse"]) / float(out["id_nmse"])
+            if out.get("ood_nmse") is not None
+            and out.get("id_nmse") is not None
+            and float(out["id_nmse"]) > 0.0
+            else None
+        )
+        out["ood_minus_id_r2"] = (
+            float(out["ood_r2"]) - float(out["id_r2"])
+            if out.get("ood_r2") is not None and out.get("id_r2") is not None
+            else None
+        )
+        out["numerical_complete_fit"] = bool(
+            out.get("ood_r2") is not None
+            and float(out["ood_r2"]) > NUMERICAL_FIT_R2_THRESHOLD
+        )
+        expansion_factors = [
+            float(value)
+            for value in str(args.expansion_factors).split(",")
+            if value.strip()
+        ]
+        out.update(
+            evaluate_range_expansions(
+                constructed_case,
+                train_df,
+                out.get("best_expr"),
+                expansion_factors,
+                args.n_test,
+                args.random_state + args.case_index * 1009 + args.repeat_seed,
+            )
+        )
         if out.get("expr_complexity") is None:
             out["expr_complexity"] = expr_complexity(out.get("best_expr"))
     except BaseException as exc:
@@ -220,6 +291,8 @@ def run_child(args) -> int:
             "ood_mse": None,
             "extrapolation_mse": None,
             "extrapolation_r2": None,
+            "ood_negative_r2": False,
+            "ood_nonfinite_prediction": "non-finite" in repr(exc).lower(),
             "error": repr(exc),
         }
     result_path.write_text(json.dumps(json_safe(out), ensure_ascii=False, indent=2), encoding="utf-8")
@@ -247,6 +320,8 @@ def timeout_row(args, case: dict, runtime_sec: float, log_path: Path, parent_tim
         "ood_mse": None,
         "extrapolation_mse": None,
         "extrapolation_r2": None,
+        "ood_negative_r2": False,
+        "ood_nonfinite_prediction": False,
         "case_log_path": str(log_path),
         "error": f"case exceeded outer timeout {outer_timeout:.1f}s",
     }
@@ -264,6 +339,15 @@ def summarize(rows: list[dict], out_dir: Path, suite: str):
         "ood_mse",
         "extrapolation_mse",
         "extrapolation_r2",
+        "ood_rmse",
+        "ood_nmse",
+        "ood_nrmse",
+        "ood_r2",
+        "ood_negative_r2",
+        "ood_nonfinite_prediction",
+        "ood_id_nmse_ratio",
+        "ood_minus_id_r2",
+        "numerical_complete_fit",
         "runtime_sec",
         "expr_complexity",
     ]:
@@ -280,15 +364,38 @@ def summarize(rows: list[dict], out_dir: Path, suite: str):
             n=("case_index", "count"),
             timeout_rate=("timed_out", "mean"),
             pass_rate=("passed", "mean"),
+            numerical_complete_fit=("numerical_complete_fit", "mean"),
             median_id_mse=("best_val_mse", "median"),
             median_ood_mse=("best_test_mse", "median"),
+            median_ood_rmse=("ood_rmse", "median"),
+            median_ood_nmse=("ood_nmse", "median"),
+            median_ood_nrmse=("ood_nrmse", "median"),
             median_ood_r2=("extrapolation_r2", "median"),
+            negative_ood_r2_rate=("ood_negative_r2", "mean"),
+            ood_nonfinite_prediction_rate=("ood_nonfinite_prediction", "mean"),
+            median_ood_id_nmse_ratio=("ood_id_nmse_ratio", "median"),
+            median_ood_minus_id_r2=("ood_minus_id_r2", "median"),
             median_runtime=("runtime_sec", "median"),
             median_complexity=("expr_complexity", "median"),
         )
         .reset_index()
     )
     summary.to_csv(out_dir / f"summary_{suite}_vl_loopsr_strict.csv", index=False)
+    range_columns = sorted(
+        column
+        for column in df.columns
+        if re.fullmatch(r"range_\d+_(mse|rmse|nmse|mae|r2)", str(column))
+    )
+    if range_columns:
+        range_summary = (
+            df.groupby(group_cols, dropna=False)[range_columns]
+            .median(numeric_only=True)
+            .reset_index()
+        )
+        range_summary.to_csv(
+            out_dir / f"summary_{suite}_range_expansion_metrics.csv",
+            index=False,
+        )
 
 
 def run_parent(args) -> int:
@@ -312,6 +419,7 @@ def run_parent(args) -> int:
         "parent_timeout_sec": float(parent_timeout_sec),
         "v11_path": str(args.v11_path),
         "surfacebench_path": str(args.surfacebench_path) if args.suite == "surfacebench" else None,
+        "range_expansion_factors": args.expansion_factors if args.suite == "constructed" else None,
     }
     (out_dir / "manifest_vl_loopsr.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -356,6 +464,8 @@ def run_parent(args) -> int:
             str(args.case_budget_sec),
             "--timeout-grace-sec",
             str(args.timeout_grace_sec),
+            "--expansion-factors",
+            args.expansion_factors,
             "--max-cases",
             str(args.max_cases or 0),
             "--random-state",
@@ -418,6 +528,7 @@ def parse_args():
     parser.add_argument("--n-train", type=int, default=256)
     parser.add_argument("--n-val", type=int, default=128)
     parser.add_argument("--n-test", type=int, default=512)
+    parser.add_argument("--expansion-factors", default="1.25,1.5,1.75,2.0")
     parser.add_argument("--repeat-seed", type=int, default=0)
     parser.add_argument("--random-state", type=int, default=42)
     parser.add_argument("--resume", action="store_true")

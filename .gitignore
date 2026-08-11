@@ -1,9 +1,14 @@
 # Python
 __pycache__/
 *.py[cod]
+*.so
+*.o
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+build/
+dist/
+*.egg-info/
 .venv/
 venv/
 
@@ -23,11 +28,20 @@ reports/
 outputs/
 paper_figures*/
 current_result_summary*/
+/figs/*
+!/figs/.gitkeep
 
 # Local caches
 .cache/
 data/llmsrbench/
 data/pmlb_regression_csv/
+
+# Locally cloned benchmark repositories
+/srbench/
+/data/llmsrbench_github/
+/data/sim-datasets/
+/data/sim-datasets-llmsr/
+/data/sldbench_repo/
 
 # Model weights and private adapters
 *.safetensors
@@ -42,6 +56,13 @@ data/pmlb_regression_csv/
 # Optional official baseline checkouts
 external_repos/LLM-SR/
 external_repos/In-Context-Symbolic-Regression/
+
+# Local paper drafts and reference material
+/dxevolve-nature-latex/
+/*.docx
+/*.pdf
+/*.tex
+/*.xlsx
 
 # OS/editor
 .DS_Store

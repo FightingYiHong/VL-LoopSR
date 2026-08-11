@@ -25,8 +25,9 @@ Variants:
 - w_o_critic
 - w_o_proposer
 
-Primary readouts: mean/median test MSE, MSE < 1, active-variable recall, proxy
-misuse, valid-expression count, and loop trajectory.
+Primary readouts: paired test R2/NMSE, strict/SRBench recovery, active-variable
+recall, proxy misuse, complexity, runtime, valid-expression count, and loop
+trajectory.
 
 Controls:
   LAUNCH_ABLATION=1

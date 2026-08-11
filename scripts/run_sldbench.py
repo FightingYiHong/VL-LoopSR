@@ -280,6 +280,34 @@ def load_sldbench_split(task_name: str, split: str):
     feature_names = [str(x) for x in schema["feature_names"]]
     target_names = normalize_target_names(schema["target_name"])
 
+    local_root = Path(SLDBENCH_HUB_REPO).expanduser()
+    if local_root.exists():
+        parquet_paths = sorted((local_root / task_name).glob(f"{split}-*.parquet"))
+        if not parquet_paths:
+            raise FileNotFoundError(
+                f"SLDBench local split not found: {local_root / task_name} ({split})"
+            )
+        frame = pd.concat(
+            [pd.read_parquet(path) for path in parquet_paths],
+            axis=0,
+            ignore_index=True,
+        )
+        if "group" not in frame.columns:
+            raise KeyError(f"'group' column not found in task={task_name}, split={split}")
+        out = {}
+        for group_key, group_frame in frame.groupby("group", sort=True):
+            X = group_frame[feature_names].to_numpy(dtype=float)
+            y = group_frame[target_names].to_numpy(dtype=float)
+            if y.shape[1] == 1:
+                y = y.squeeze(axis=1)
+            out[group_key] = {
+                "X": X,
+                "y": y,
+                "feature_names": feature_names,
+                "target_names": target_names,
+            }
+        return out
+
     try:
         ds = datasets.load_dataset(SLDBENCH_HUB_REPO, name=task_name, split=split)
     except Exception:

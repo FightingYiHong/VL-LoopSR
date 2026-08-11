@@ -6,12 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Iterable
 
 import numpy as np
 import pandas as pd
 
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 BENCHMARKS = ("sldbench", "llmsrbench", "srsd", "srbench")
 EXPECTED_TOTALS = {
@@ -95,6 +99,9 @@ def normalize_result_frame(path: Path, benchmark: str, method_label: str, pass_t
         axis=1,
     )
     out["best_test_mse"] = finite_numeric(raw.get("best_test_mse", raw.get("test_mse", pd.Series(np.nan, index=raw.index))))
+    out["test_rmse"] = finite_numeric(raw.get("test_rmse", pd.Series(np.nan, index=raw.index)))
+    out["test_nmse"] = finite_numeric(raw.get("test_nmse", pd.Series(np.nan, index=raw.index)))
+    out["test_nrmse"] = finite_numeric(raw.get("test_nrmse", pd.Series(np.nan, index=raw.index)))
     out["test_r2"] = finite_numeric(raw.get("test_r2", raw.get("r2", pd.Series(np.nan, index=raw.index))))
     out["runtime_sec"] = finite_numeric(raw.get("runtime_sec", raw.get("elapsed_sec", pd.Series(np.nan, index=raw.index))))
     out["expr_complexity"] = finite_numeric(raw.get("expr_complexity", raw.get("best_complexity", pd.Series(np.nan, index=raw.index))))
@@ -117,7 +124,29 @@ def normalize_result_frame(path: Path, benchmark: str, method_label: str, pass_t
     if "perfect_fit_by_r2" in raw.columns:
         out["perfect_fit_by_r2"] = raw["perfect_fit_by_r2"].map(as_bool)
     else:
-        out["perfect_fit_by_r2"] = out["test_r2"].ge(0.999999).fillna(False)
+        out["perfect_fit_by_r2"] = out["test_r2"].gt(0.999).fillna(False)
+    if "numerical_complete_fit" in raw.columns:
+        out["numerical_complete_fit"] = raw["numerical_complete_fit"].map(as_bool)
+    else:
+        out["numerical_complete_fit"] = out["test_r2"].gt(0.999).fillna(False)
+    if "strict_formula_recovery" in raw.columns:
+        out["strict_formula_recovery"] = raw["strict_formula_recovery"].map(as_bool)
+        out["strict_formula_recovery_evaluable"] = raw.get(
+            "strict_formula_recovery_evaluable",
+            pd.Series(True, index=raw.index),
+        ).map(as_bool)
+    else:
+        out["strict_formula_recovery"] = False
+        out["strict_formula_recovery_evaluable"] = False
+    if "srbench_formula_recovery" in raw.columns:
+        out["srbench_formula_recovery"] = raw["srbench_formula_recovery"].map(as_bool)
+        out["srbench_formula_recovery_evaluable"] = raw.get(
+            "srbench_formula_recovery_evaluable",
+            pd.Series(True, index=raw.index),
+        ).map(as_bool)
+    else:
+        out["srbench_formula_recovery"] = False
+        out["srbench_formula_recovery_evaluable"] = False
     if "skeleton_recovery" in raw.columns:
         out["skeleton_recovery"] = raw["skeleton_recovery"].map(as_bool)
     else:
@@ -176,11 +205,20 @@ def summarize_group(df: pd.DataFrame, label: str, pass_threshold: float) -> dict
         "perfect_fit_rate": float(df["perfect_fit"].astype(bool).mean()) if n else math.nan,
         "r2_perfect_n": int(df["perfect_fit_by_r2"].astype(bool).sum()),
         "r2_perfect_rate": float(df["perfect_fit_by_r2"].astype(bool).mean()) if n else math.nan,
+        "numerical_complete_fit_n": int(df["numerical_complete_fit"].astype(bool).sum()),
+        "numerical_complete_fit_rate": float(df["numerical_complete_fit"].astype(bool).mean()) if n else math.nan,
+        "strict_formula_recovery_n": int(df["strict_formula_recovery"].astype(bool).sum()),
+        "strict_formula_recovery_evaluable_n": int(df["strict_formula_recovery_evaluable"].astype(bool).sum()),
+        "srbench_formula_recovery_n": int(df["srbench_formula_recovery"].astype(bool).sum()),
+        "srbench_formula_recovery_evaluable_n": int(df["srbench_formula_recovery_evaluable"].astype(bool).sum()),
         "skeleton_n": int(df["skeleton_recovery"].astype(bool).sum()),
         "skeleton_rate": float(df["skeleton_recovery"].astype(bool).mean()) if n else math.nan,
         "mean_mse_pass": mean_or_nan(df.loc[pass_mask, "best_test_mse"]),
         "median_mse_pass": median_or_nan(df.loc[pass_mask, "best_test_mse"]),
         "median_mse_finite": median_or_nan(df.loc[finite_mse, "best_test_mse"]),
+        "median_test_rmse": median_or_nan(df["test_rmse"]),
+        "median_test_nmse": median_or_nan(df["test_nmse"]),
+        "median_test_nrmse": median_or_nan(df["test_nrmse"]),
         "mean_r2_finite": mean_or_nan(df["test_r2"]),
         "median_r2_finite": median_or_nan(df["test_r2"]),
         "mean_runtime_sec": mean_or_nan(df["runtime_sec"]),
@@ -211,12 +249,27 @@ def build_pairwise(before: pd.DataFrame, after: pd.DataFrame, before_label: str,
         right,
         left_on=["before_benchmark", "before_case_id"],
         right_on=["after_benchmark", "after_case_id"],
-        how="inner",
+        how="outer",
     )
-    merged["benchmark"] = merged["before_benchmark"]
-    merged["case_id"] = merged["before_case_id"]
+    merged["benchmark"] = merged["before_benchmark"].combine_first(merged["after_benchmark"])
+    merged["case_id"] = merged["before_case_id"].combine_first(merged["after_case_id"])
     merged["before_label"] = before_label
     merged["after_label"] = after_label
+    merged["before_observed"] = merged["before_method"].notna()
+    merged["after_observed"] = merged["after_method"].notna()
+    boolean_columns = (
+        "pass_at_threshold",
+        "perfect_fit",
+        "strict_formula_recovery",
+        "srbench_formula_recovery",
+        "numerical_complete_fit",
+        "time_budget_hit",
+    )
+    for side in ("before", "after"):
+        for column in boolean_columns:
+            name = f"{side}_{column}"
+            if name in merged:
+                merged[name] = merged[name].fillna(False).astype(bool)
     merged["mse_delta"] = merged["after_best_test_mse"] - merged["before_best_test_mse"]
     merged["log_mse_before"] = np.log10(np.clip(merged["before_best_test_mse"].astype(float), 1.0e-12, 1.0e300))
     merged["log_mse_after"] = np.log10(np.clip(merged["after_best_test_mse"].astype(float), 1.0e-12, 1.0e300))
@@ -239,14 +292,37 @@ def build_pairwise(before: pd.DataFrame, after: pd.DataFrame, before_label: str,
     return merged
 
 
+def bootstrap_mean_ci(values: pd.Series, seed: int = 42, draws: int = 2000) -> tuple[float, float]:
+    array = pd.to_numeric(values, errors="coerce").dropna().to_numpy(dtype=float)
+    if not len(array):
+        return math.nan, math.nan
+    rng = np.random.default_rng(seed)
+    means = np.empty(draws, dtype=float)
+    for index in range(draws):
+        means[index] = rng.choice(array, size=len(array), replace=True).mean()
+    return float(np.quantile(means, 0.025)), float(np.quantile(means, 0.975))
+
+
 def summarize_pairwise(pairwise: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for benchmark, sub in list(pairwise.groupby("benchmark", sort=False)) + [("overall", pairwise)]:
         n = int(len(sub))
+        pass_delta = (
+            sub["after_pass_at_threshold"].astype(float)
+            - sub["before_pass_at_threshold"].astype(float)
+        )
+        strict_delta = (
+            sub["after_strict_formula_recovery"].astype(float)
+            - sub["before_strict_formula_recovery"].astype(float)
+        )
+        pass_ci_low, pass_ci_high = bootstrap_mean_ci(pass_delta)
+        strict_ci_low, strict_ci_high = bootstrap_mean_ci(strict_delta)
         rows.append(
             {
                 "benchmark": benchmark,
                 "paired_n": n,
+                "before_observed_n": int(sub["before_observed"].sum()),
+                "after_observed_n": int(sub["after_observed"].sum()),
                 "after_mse_win": int((sub["mse_win"] == "after").sum()),
                 "before_mse_win": int((sub["mse_win"] == "before").sum()),
                 "mse_tie": int((sub["mse_win"] == "tie").sum()),
@@ -255,6 +331,12 @@ def summarize_pairwise(pairwise: pd.DataFrame) -> pd.DataFrame:
                 "pass_same": int((sub["pass_change"] == "same").sum()),
                 "exact_gain": int((sub["exact_change"] == "gain").sum()),
                 "exact_loss": int((sub["exact_change"] == "loss").sum()),
+                "paired_pass_rate_delta": float(pass_delta.mean()) if n else math.nan,
+                "paired_pass_rate_delta_ci95_low": pass_ci_low,
+                "paired_pass_rate_delta_ci95_high": pass_ci_high,
+                "paired_strict_recovery_delta": float(strict_delta.mean()) if n else math.nan,
+                "paired_strict_recovery_delta_ci95_low": strict_ci_low,
+                "paired_strict_recovery_delta_ci95_high": strict_ci_high,
                 "mean_log_mse_delta": mean_or_nan(sub["log_mse_delta"]),
                 "median_log_mse_delta": median_or_nan(sub["log_mse_delta"]),
                 "mean_complexity_delta": mean_or_nan(sub["complexity_delta"]),
@@ -326,8 +408,17 @@ def write_markdown(summary: pd.DataFrame, pair_summary: pd.DataFrame, out_path: 
 
 def make_plots(summary: pd.DataFrame, pairwise: pd.DataFrame, out_dir: Path, before_label: str, after_label: str) -> None:
     import matplotlib.pyplot as plt
+    from tools.plot_style import (
+        BENCHMARK_COLORS,
+        COLOR_NEUTRAL_DARK,
+        COLOR_NEUTRAL_MID,
+        STATE_COLORS,
+        save_nature_figure,
+        set_nature_style,
+    )
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    set_nature_style(plt)
     plot_benchmarks = [b for b in BENCHMARKS if b in set(summary["benchmark"])]
     x = np.arange(len(plot_benchmarks))
     width = 0.36
@@ -335,8 +426,8 @@ def make_plots(summary: pd.DataFrame, pairwise: pd.DataFrame, out_dir: Path, bef
     after = summary[(summary["method"] == after_label) & summary["benchmark"].isin(plot_benchmarks)].set_index("benchmark").reindex(plot_benchmarks)
 
     fig, ax = plt.subplots(figsize=(7.2, 3.6))
-    ax.bar(x - width / 2, before["pass100_rate"] * 100.0, width, label=before_label, color="#8c8c8c")
-    ax.bar(x + width / 2, after["pass100_rate"] * 100.0, width, label=after_label, color="#1f5aa6")
+    ax.bar(x - width / 2, before["pass100_rate"] * 100.0, width, label=before_label, color=STATE_COLORS["before"])
+    ax.bar(x + width / 2, after["pass100_rate"] * 100.0, width, label=after_label, color=STATE_COLORS["after"])
     ax.set_xticks(x)
     ax.set_xticklabels(plot_benchmarks, rotation=20, ha="right")
     ax.set_ylabel("PASS@100 (%)")
@@ -346,14 +437,14 @@ def make_plots(summary: pd.DataFrame, pairwise: pd.DataFrame, out_dir: Path, bef
     ax.grid(axis="y", alpha=0.25)
     ax.legend(frameon=False)
     fig.tight_layout()
-    fig.savefig(out_dir / "pass100_before_after.png", dpi=300)
-    fig.savefig(out_dir / "pass100_before_after.pdf")
+    save_nature_figure(fig, out_dir / "pass100_before_after.png", "proposer_sft", dpi=300)
+    save_nature_figure(fig, out_dir / "pass100_before_after.pdf", "proposer_sft")
     plt.close(fig)
 
     finite = pairwise[np.isfinite(pairwise["before_best_test_mse"].astype(float)) & np.isfinite(pairwise["after_best_test_mse"].astype(float))].copy()
     if not finite.empty:
         fig, ax = plt.subplots(figsize=(4.8, 4.4))
-        colors = finite["benchmark"].map({"sldbench": "#4c78a8", "llmsrbench": "#f58518", "srsd": "#54a24b", "srbench": "#b279a2"}).fillna("#777777")
+        colors = finite["benchmark"].map(BENCHMARK_COLORS).fillna(COLOR_NEUTRAL_MID)
         ax.scatter(
             np.clip(finite["before_best_test_mse"].astype(float), 1.0e-12, 1.0e8),
             np.clip(finite["after_best_test_mse"].astype(float), 1.0e-12, 1.0e8),
@@ -363,7 +454,7 @@ def make_plots(summary: pd.DataFrame, pairwise: pd.DataFrame, out_dir: Path, bef
             linewidth=0,
         )
         lo, hi = 1.0e-12, 1.0e8
-        ax.plot([lo, hi], [lo, hi], color="#222222", lw=0.9, ls="--")
+        ax.plot([lo, hi], [lo, hi], color=COLOR_NEUTRAL_DARK, lw=0.9, ls="--")
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlabel(f"{before_label} test MSE")
@@ -373,8 +464,8 @@ def make_plots(summary: pd.DataFrame, pairwise: pd.DataFrame, out_dir: Path, bef
         ax.spines["right"].set_visible(False)
         ax.grid(alpha=0.22)
         fig.tight_layout()
-        fig.savefig(out_dir / "case_mse_scatter.png", dpi=300)
-        fig.savefig(out_dir / "case_mse_scatter.pdf")
+        save_nature_figure(fig, out_dir / "case_mse_scatter.png", "proposer_sft", dpi=300)
+        save_nature_figure(fig, out_dir / "case_mse_scatter.pdf", "proposer_sft")
         plt.close(fig)
 
     pair_summary = summarize_pairwise(pairwise)
@@ -382,9 +473,9 @@ def make_plots(summary: pd.DataFrame, pairwise: pd.DataFrame, out_dir: Path, bef
     fig, ax = plt.subplots(figsize=(7.2, 3.6))
     bottom = np.zeros(len(plot_benchmarks))
     for col, color, label in [
-        ("after_mse_win", "#1f5aa6", "after wins"),
-        ("mse_tie", "#d9d9d9", "tie"),
-        ("before_mse_win", "#9e3d22", "before wins"),
+        ("after_mse_win", STATE_COLORS["win"], "after wins"),
+        ("mse_tie", STATE_COLORS["tie"], "tie"),
+        ("before_mse_win", STATE_COLORS["loss"], "before wins"),
     ]:
         vals = ps[col].fillna(0).to_numpy()
         ax.bar(x, vals, bottom=bottom, color=color, label=label)
@@ -397,8 +488,8 @@ def make_plots(summary: pd.DataFrame, pairwise: pd.DataFrame, out_dir: Path, bef
     ax.spines["right"].set_visible(False)
     ax.legend(frameon=False, ncol=3)
     fig.tight_layout()
-    fig.savefig(out_dir / "win_tie_loss.png", dpi=300)
-    fig.savefig(out_dir / "win_tie_loss.pdf")
+    save_nature_figure(fig, out_dir / "win_tie_loss.png", "proposer_sft", dpi=300)
+    save_nature_figure(fig, out_dir / "win_tie_loss.pdf", "proposer_sft")
     plt.close(fig)
 
 
@@ -437,6 +528,8 @@ def main() -> None:
         "after_label": args.after_label,
         "pass_threshold": args.pass_threshold,
         "mse_win_rel_tol": args.mse_win_rel_tol,
+        "pairing_policy": "outer-join intention-to-treat; missing side counts as failure",
+        "bootstrap": {"draws": 2000, "seed": 42},
         "outputs": {
             "case_metrics_long": str(args.out_dir / "case_metrics_long.csv"),
             "summary_by_benchmark": str(args.out_dir / "summary_by_benchmark.csv"),

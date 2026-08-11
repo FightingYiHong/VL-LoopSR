@@ -30,6 +30,14 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import run_cpu_baseline_benchmarks as cpu_base
 import run_v11_high_dimensional_interference as highdim
+from benchmark_metrics import (
+    NUMERICAL_FIT_R2_THRESHOLD,
+    evaluate_expression,
+    expression_complexity,
+    regression_metrics,
+    srbench_formula_recovery,
+    strict_formula_recovery,
+)
 
 
 PASS_MSE_THRESHOLD = 100.0
@@ -141,8 +149,15 @@ def fit_physo_highdim(train_df, val_df, test_df, config_path, random_state=None)
 FIT_FUNCTIONS["physo"] = fit_physo_highdim
 
 
-def score_result(case: highdim.HighDimCase, result: dict) -> dict:
-    active = variables_used(result.get("best_expr"), case.feature_names)
+def score_result(
+    case: highdim.HighDimCase,
+    result: dict,
+    train_df: pd.DataFrame | None = None,
+    val_df: pd.DataFrame | None = None,
+    test_df: pd.DataFrame | None = None,
+) -> dict:
+    best_expr = result.get("best_expr")
+    active = variables_used(best_expr, case.feature_names)
     active_set = set(active)
     true_set = set(case.true_variables)
     proxy_set = set(case.proxy_variables)
@@ -152,6 +167,10 @@ def score_result(case: highdim.HighDimCase, result: dict) -> dict:
     true_variable_precision = len(active_set & true_set) / max(1, len(active_set))
     false_count = len(active_set - true_set)
     false_variable_discovery_rate = false_count / max(1, len(active_set))
+    irrelevant_variable_false_positive_rate = false_count / max(
+        1, case.dimension - len(true_set)
+    )
+    exact_support_recovery = active_set == true_set
     proxy_misuse = bool(active_set & proxy_set)
     nonlinear_decoy_misuse = bool(active_set & decoy_set)
     irrelevant_misuse = bool(active_set - true_set - proxy_set - decoy_set)
@@ -165,7 +184,24 @@ def score_result(case: highdim.HighDimCase, result: dict) -> dict:
         and false_variable_discovery_rate <= 0.25
         and test_mse <= SKELETON_MSE_THRESHOLD
     )
-    exact_recovery = bool(active_set == true_set and test_mse <= EXACT_MSE_THRESHOLD)
+    exact_recovery_proxy = bool(active_set == true_set and test_mse <= EXACT_MSE_THRESHOLD)
+    strict_recovery = strict_formula_recovery(best_expr, case.true_expression, case.feature_names)
+    srbench_recovery = srbench_formula_recovery(best_expr, case.true_expression, case.feature_names)
+    metric_updates = {}
+    if best_expr and train_df is not None and val_df is not None and test_df is not None:
+        try:
+            for split_name, frame in (
+                ("train", train_df),
+                ("val", val_df),
+                ("test", test_df),
+            ):
+                predictions = evaluate_expression(best_expr, frame, case.feature_names)
+                metrics = regression_metrics(frame["y"].to_numpy(dtype=float), predictions)
+                for metric_name, metric_value in metrics.items():
+                    metric_updates[f"{split_name}_{metric_name}"] = metric_value
+        except Exception as exc:
+            metric_updates["final_expr_metric_eval_error"] = repr(exc)
+    test_r2 = metric_updates.get("test_r2", result.get("test_r2"))
     return {
         "active_variables": "|".join(active),
         "true_variables": "|".join(case.true_variables),
@@ -174,13 +210,25 @@ def score_result(case: highdim.HighDimCase, result: dict) -> dict:
         "true_variable_recall": true_variable_recall,
         "true_variable_precision": true_variable_precision,
         "false_variable_discovery_rate": false_variable_discovery_rate,
+        "irrelevant_variable_false_positive_rate": irrelevant_variable_false_positive_rate,
+        "exact_support_recovery": exact_support_recovery,
         "wrong_variable_count": false_count,
         "proxy_misuse": proxy_misuse,
         "nonlinear_decoy_misuse": nonlinear_decoy_misuse,
         "irrelevant_misuse": irrelevant_misuse,
         "skeleton_recovery": skeleton_recovery,
-        "exact_recovery": exact_recovery,
+        "exact_recovery": bool(strict_recovery),
+        "strict_formula_recovery": bool(strict_recovery),
+        "strict_formula_recovery_evaluable": strict_recovery is not None,
+        "srbench_formula_recovery": bool(srbench_recovery),
+        "srbench_formula_recovery_evaluable": srbench_recovery is not None,
+        "exact_recovery_proxy": exact_recovery_proxy,
+        "numerical_complete_fit": bool(
+            test_r2 is not None and float(test_r2) > NUMERICAL_FIT_R2_THRESHOLD
+        ),
         "passed": bool(test_mse <= PASS_MSE_THRESHOLD),
+        "expr_complexity": expression_complexity(best_expr, case.feature_names).get("expr_complexity"),
+        **metric_updates,
     }
 
 
@@ -222,7 +270,7 @@ def run_one(method: str, case: highdim.HighDimCase, args) -> dict:
             "true_expression_for_scoring": case.true_expression,
             "config_path": str(config_path),
         }
-        out.update(score_result(case, out))
+        out.update(score_result(case, out, train_df, val_df, test_df))
         return out
     except BaseException as exc:
         out = {
@@ -316,6 +364,9 @@ def summarize(rows: list[dict], out_dir: Path):
         "timed_out",
         "passed",
         "exact_recovery",
+        "strict_formula_recovery",
+        "numerical_complete_fit",
+        "exact_recovery_proxy",
         "skeleton_recovery",
         "proxy_misuse",
         "nonlinear_decoy_misuse",
@@ -323,11 +374,17 @@ def summarize(rows: list[dict], out_dir: Path):
         "true_variable_recall",
         "true_variable_precision",
         "false_variable_discovery_rate",
+        "irrelevant_variable_false_positive_rate",
+        "exact_support_recovery",
         "wrong_variable_count",
         "true_variable_count",
         "dimension",
         "interference_type",
         "best_test_mse",
+        "test_rmse",
+        "test_nmse",
+        "test_nrmse",
+        "test_r2",
         "runtime_sec",
         "expr_complexity",
     ]:
@@ -341,13 +398,20 @@ def summarize(rows: list[dict], out_dir: Path):
             timeout_rate=("timed_out", "mean"),
             pass_rate=("passed", "mean"),
             exact_recovery=("exact_recovery", "mean"),
+            numerical_complete_fit=("numerical_complete_fit", "mean"),
             skeleton_recovery=("skeleton_recovery", "mean"),
             true_variable_recall=("true_variable_recall", "mean"),
+            true_variable_precision=("true_variable_precision", "mean"),
             false_variable_discovery_rate=("false_variable_discovery_rate", "mean"),
+            irrelevant_variable_false_positive_rate=("irrelevant_variable_false_positive_rate", "mean"),
+            exact_support_recovery=("exact_support_recovery", "mean"),
             proxy_misuse_rate=("proxy_misuse", "mean"),
             nonlinear_decoy_misuse_rate=("nonlinear_decoy_misuse", "mean"),
             irrelevant_misuse_rate=("irrelevant_misuse", "mean"),
             median_test_mse=("best_test_mse", "median"),
+            median_test_rmse=("test_rmse", "median"),
+            median_test_nmse=("test_nmse", "median"),
+            median_test_nrmse=("test_nrmse", "median"),
             median_complexity=("expr_complexity", "median"),
             median_runtime_sec=("runtime_sec", "median"),
         )

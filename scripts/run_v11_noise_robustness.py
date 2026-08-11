@@ -44,6 +44,15 @@ except Exception:
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.benchmark_metrics import (
+    NUMERICAL_FIT_R2_THRESHOLD,
+    expression_complexity as shared_expression_complexity,
+    regression_metrics,
+    srbench_formula_recovery,
+    strict_formula_recovery,
+)
+
 DEFAULT_V11_PATH = ROOT / "scripts" / "test_fey_v11_complexity_exact.py"
 PASS_MSE_THRESHOLD = 100.0
 EXACT_CLEAN_MSE_THRESHOLD = 1e-8
@@ -458,16 +467,8 @@ def import_v11_module(v11_path: Path, results_root: Path):
 
 
 def expr_complexity(expr) -> float | None:
-    if not isinstance(expr, str) or not expr.strip():
-        return None
-    try:
-        import sympy as sp
-
-        parsed = sp.sympify(expr)
-        return float(sp.count_ops(parsed, visual=False) + len(parsed.free_symbols))
-    except Exception:
-        tokens = [tok for tok in re.split(r"[^A-Za-z0-9_.]+", expr) if tok]
-        return float(len(tokens)) if tokens else None
+    value = shared_expression_complexity(expr).get("expr_complexity")
+    return float(value) if value is not None else None
 
 
 def finite_mse(y_true, y_pred) -> float | None:
@@ -797,7 +798,10 @@ def clean_eval_metrics(v11, case: NoiseCase, result: dict, clean: dict) -> dict:
     form = formula_form_score(v11, expr, case.true_expression, case.feature_names)
     form_score = float(form.get("score") or 0.0)
 
-    clean_train_mse = clean_val_mse = clean_test_mse = None
+    clean_metrics = {
+        split: {name: None for name in ("mse", "rmse", "nmse", "nrmse", "mae", "r2")}
+        for split in ("train", "val", "test")
+    }
     residual_score = None
     residual_structured = None
     if expr:
@@ -805,19 +809,25 @@ def clean_eval_metrics(v11, case: NoiseCase, result: dict, clean: dict) -> dict:
             train_pred = v11._base.evaluate_expression_on_df(expr, clean["train"])
             val_pred = v11._base.evaluate_expression_on_df(expr, clean["val"])
             test_pred = v11._base.evaluate_expression_on_df(expr, clean["test"])
-            clean_train_mse = finite_mse(clean["train"]["y"].to_numpy(), train_pred)
-            clean_val_mse = finite_mse(clean["val"]["y"].to_numpy(), val_pred)
-            clean_test_mse = finite_mse(clean["test"]["y"].to_numpy(), test_pred)
+            clean_metrics["train"] = regression_metrics(clean["train"]["y"].to_numpy(), train_pred)
+            clean_metrics["val"] = regression_metrics(clean["val"]["y"].to_numpy(), val_pred)
+            clean_metrics["test"] = regression_metrics(clean["test"]["y"].to_numpy(), test_pred)
             residual = clean["test"]["y"].to_numpy(dtype=float) - np.asarray(test_pred, dtype=float)
             residual_score = residual_structure_score(residual, clean["test"], case.feature_names)
             residual_structured = bool(
                 residual_score is not None
                 and residual_score >= 0.35
-                and (clean_test_mse is None or clean_test_mse > SKELETON_CLEAN_MSE_THRESHOLD)
+                and (
+                    clean_metrics["test"]["mse"] is None
+                    or clean_metrics["test"]["mse"] > SKELETON_CLEAN_MSE_THRESHOLD
+                )
             )
         except Exception:
             pass
 
+    clean_train_mse = clean_metrics["train"]["mse"]
+    clean_val_mse = clean_metrics["val"]["mse"]
+    clean_test_mse = clean_metrics["test"]["mse"]
     clean_mse_for_pass = float(clean_test_mse) if clean_test_mse is not None else float("inf")
     skeleton = bool(
         clean_mse_for_pass <= SKELETON_CLEAN_MSE_THRESHOLD
@@ -825,10 +835,16 @@ def clean_eval_metrics(v11, case: NoiseCase, result: dict, clean: dict) -> dict:
         and fdr <= 0.25
         and form_score >= 0.65
     )
-    exact = bool(
+    exact_proxy = bool(
         clean_mse_for_pass <= EXACT_CLEAN_MSE_THRESHOLD
         and active_set == true_set
         and form_score >= 0.90
+    )
+    strict_recovery = strict_formula_recovery(expr, case.true_expression, case.feature_names)
+    srbench_recovery = srbench_formula_recovery(expr, case.true_expression, case.feature_names)
+    clean_test_r2 = clean_metrics["test"]["r2"]
+    numerical_complete_fit = bool(
+        clean_test_r2 is not None and clean_test_r2 > NUMERICAL_FIT_R2_THRESHOLD
     )
     complexity_bloat = None
     if true_complexity and found_complexity is not None:
@@ -843,14 +859,31 @@ def clean_eval_metrics(v11, case: NoiseCase, result: dict, clean: dict) -> dict:
         "wrong_variable_count": false_count,
         "formula_form_score": form_score,
         "skeleton_recovery": skeleton,
-        "exact_recovery": exact,
-        "exact_recovery_proxy": exact,
+        "exact_recovery": bool(strict_recovery),
+        "strict_formula_recovery": bool(strict_recovery),
+        "strict_formula_recovery_evaluable": strict_recovery is not None,
+        "srbench_formula_recovery": bool(srbench_recovery),
+        "srbench_formula_recovery_evaluable": srbench_recovery is not None,
+        "exact_recovery_proxy": exact_proxy,
+        "numerical_complete_fit": numerical_complete_fit,
         "passed": bool(clean_mse_for_pass <= PASS_MSE_THRESHOLD),
         "pass_at_100": bool(clean_mse_for_pass <= 100.0),
         "pass_at_300": bool(clean_mse_for_pass <= 300.0),
         "clean_train_mse": clean_train_mse,
         "clean_val_mse": clean_val_mse,
         "clean_test_mse": clean_test_mse,
+        "clean_train_rmse": clean_metrics["train"]["rmse"],
+        "clean_val_rmse": clean_metrics["val"]["rmse"],
+        "clean_test_rmse": clean_metrics["test"]["rmse"],
+        "clean_train_nmse": clean_metrics["train"]["nmse"],
+        "clean_val_nmse": clean_metrics["val"]["nmse"],
+        "clean_test_nmse": clean_metrics["test"]["nmse"],
+        "clean_train_nrmse": clean_metrics["train"]["nrmse"],
+        "clean_val_nrmse": clean_metrics["val"]["nrmse"],
+        "clean_test_nrmse": clean_metrics["test"]["nrmse"],
+        "clean_train_r2": clean_metrics["train"]["r2"],
+        "clean_val_r2": clean_metrics["val"]["r2"],
+        "clean_test_r2": clean_test_r2,
         "mse_at_pass": clean_test_mse if clean_mse_for_pass <= PASS_MSE_THRESHOLD else None,
         "residual_structure_score": residual_score,
         "residual_structured": residual_structured,
@@ -1018,10 +1051,17 @@ def summarize(rows: list[dict], out_dir: Path):
         "pass_at_100",
         "pass_at_300",
         "exact_recovery",
+        "strict_formula_recovery",
+        "srbench_formula_recovery",
+        "numerical_complete_fit",
         "skeleton_recovery",
         "noise_level",
         "best_val_mse",
         "clean_test_mse",
+        "clean_test_rmse",
+        "clean_test_nmse",
+        "clean_test_nrmse",
+        "clean_test_r2",
         "mse_at_pass",
         "runtime_sec",
         "expr_complexity",
@@ -1041,8 +1081,14 @@ def summarize(rows: list[dict], out_dir: Path):
             pass_at_100=("pass_at_100", "mean"),
             pass_at_300=("pass_at_300", "mean"),
             exact_recovery=("exact_recovery", "mean"),
+            strict_formula_recovery=("strict_formula_recovery", "mean"),
+            srbench_formula_recovery=("srbench_formula_recovery", "mean"),
+            numerical_complete_fit=("numerical_complete_fit", "mean"),
             skeleton_recovery=("skeleton_recovery", "mean"),
             median_clean_test_mse=("clean_test_mse", "median"),
+            median_clean_test_rmse=("clean_test_rmse", "median"),
+            median_clean_test_nmse=("clean_test_nmse", "median"),
+            median_clean_test_nrmse=("clean_test_nrmse", "median"),
             median_noisy_val_mse=("best_val_mse", "median"),
             median_complexity=("expr_complexity", "median"),
             median_complexity_bloat=("complexity_bloat", "median"),
@@ -1061,8 +1107,14 @@ def summarize(rows: list[dict], out_dir: Path):
             pass_at_100=("pass_at_100", "mean"),
             pass_at_300=("pass_at_300", "mean"),
             exact_recovery=("exact_recovery", "mean"),
+            strict_formula_recovery=("strict_formula_recovery", "mean"),
+            srbench_formula_recovery=("srbench_formula_recovery", "mean"),
+            numerical_complete_fit=("numerical_complete_fit", "mean"),
             skeleton_recovery=("skeleton_recovery", "mean"),
             median_clean_test_mse=("clean_test_mse", "median"),
+            median_clean_test_rmse=("clean_test_rmse", "median"),
+            median_clean_test_nmse=("clean_test_nmse", "median"),
+            median_clean_test_nrmse=("clean_test_nrmse", "median"),
             median_complexity=("expr_complexity", "median"),
             median_complexity_bloat=("complexity_bloat", "median"),
             residual_structured_rate=("residual_structured", "mean"),
@@ -1078,20 +1130,29 @@ def summarize(rows: list[dict], out_dir: Path):
 def plot_figures(df: pd.DataFrame, by_noise: pd.DataFrame, out_dir: Path):
     if plt is None:
         return
+    from tools.plot_style import COLOR_NEUTRAL_DARK, palette_for, save_nature_figure, set_nature_style
+
     fig_dir = out_dir / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
-    if sns is not None:
-        sns.set_theme(style="whitegrid")
-    else:
-        plt.style.use("ggplot")
+    set_nature_style(plt, sns)
+    method_values = sorted(df["method"].dropna().unique())
+    method_palette = palette_for(method_values)
 
     plt.figure(figsize=(8.2, 4.6))
     if sns is not None:
-        sns.lineplot(data=df, x="noise_level", y="skeleton_recovery", hue="method", marker="o", errorbar=("ci", 95))
+        sns.lineplot(
+            data=df,
+            x="noise_level",
+            y="skeleton_recovery",
+            hue="method",
+            marker="o",
+            errorbar=("ci", 95),
+            palette=method_palette,
+        )
     else:
         for method, sub in df.groupby("method", dropna=False):
             grouped = sub.groupby("noise_level")["skeleton_recovery"].mean().reset_index()
-            plt.plot(grouped["noise_level"], grouped["skeleton_recovery"], marker="o", label=str(method))
+            plt.plot(grouped["noise_level"], grouped["skeleton_recovery"], marker="o", color=method_palette.get(method), label=str(method))
         plt.legend(title="method")
     plt.xscale("symlog", linthresh=0.001)
     plt.ylim(-0.05, 1.05)
@@ -1099,13 +1160,15 @@ def plot_figures(df: pd.DataFrame, by_noise: pd.DataFrame, out_dir: Path):
     plt.ylabel("Skeleton Recovery")
     plt.title("Fig.5a Noise-Structure Stability")
     plt.tight_layout()
-    plt.savefig(fig_dir / "fig5a_noise_structural_stability.png", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig5a_noise_structural_stability.png", "noise_robustness", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig5a_noise_structural_stability.pdf", "noise_robustness")
     plt.close()
 
     pareto = df.copy()
     pareto["clean_test_mse_plot"] = pd.to_numeric(pareto["clean_test_mse"], errors="coerce").clip(lower=1e-14)
     plt.figure(figsize=(8.2, 4.8))
     if sns is not None:
+        noise_values = sorted(pareto["noise_level"].dropna().unique())
         sns.scatterplot(
             data=pareto,
             x="clean_test_mse_plot",
@@ -1114,14 +1177,17 @@ def plot_figures(df: pd.DataFrame, by_noise: pd.DataFrame, out_dir: Path):
             style="benchmark",
             s=78,
             alpha=0.86,
+            palette=palette_for(noise_values),
         )
     else:
+        noise_palette = palette_for(sorted(pareto["noise_level"].dropna().unique()))
         for noise_level, sub in pareto.groupby("noise_level", dropna=False):
             plt.scatter(
                 sub["clean_test_mse_plot"],
                 sub["expr_complexity"],
                 s=72,
                 alpha=0.82,
+                color=noise_palette.get(noise_level),
                 label=f"noise={noise_level:g}" if pd.notna(noise_level) else "noise=nan",
             )
         plt.legend()
@@ -1130,32 +1196,42 @@ def plot_figures(df: pd.DataFrame, by_noise: pd.DataFrame, out_dir: Path):
     plt.ylabel("Final expression complexity")
     plt.title("Fig.5b MSE-Complexity Pareto Under Noise")
     plt.tight_layout()
-    plt.savefig(fig_dir / "fig5b_noise_mse_complexity_pareto.png", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig5b_noise_mse_complexity_pareto.png", "noise_robustness", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig5b_noise_mse_complexity_pareto.pdf", "noise_robustness")
     plt.close()
 
     plt.figure(figsize=(8.2, 4.6))
     if sns is not None:
-        sns.lineplot(data=df, x="noise_level", y="complexity_bloat", hue="method", marker="o", errorbar=("ci", 95))
+        sns.lineplot(
+            data=df,
+            x="noise_level",
+            y="complexity_bloat",
+            hue="method",
+            marker="o",
+            errorbar=("ci", 95),
+            palette=method_palette,
+        )
     else:
         for method, sub in df.groupby("method", dropna=False):
             grouped = sub.groupby("noise_level")["complexity_bloat"].median().reset_index()
-            plt.plot(grouped["noise_level"], grouped["complexity_bloat"], marker="o", label=str(method))
+            plt.plot(grouped["noise_level"], grouped["complexity_bloat"], marker="o", color=method_palette.get(method), label=str(method))
         plt.legend(title="method")
     plt.xscale("symlog", linthresh=0.001)
-    plt.axhline(1.0, color="#333333", linewidth=1.0, linestyle="--")
+    plt.axhline(1.0, color=COLOR_NEUTRAL_DARK, linewidth=1.0, linestyle="--")
     plt.xlabel("Relative target noise")
     plt.ylabel("Expression complexity / true complexity")
     plt.title("Fig.5c Complexity Inflation Under Noise")
     plt.tight_layout()
-    plt.savefig(fig_dir / "fig5c_noise_complexity_inflation.png", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig5c_noise_complexity_inflation.png", "noise_robustness", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig5c_noise_complexity_inflation.pdf", "noise_robustness")
     plt.close()
 
     plt.figure(figsize=(8.2, 4.6))
     if sns is not None:
-        sns.lineplot(data=by_noise, x="noise_level", y="residual_structured_rate", hue="method", marker="o")
+        sns.lineplot(data=by_noise, x="noise_level", y="residual_structured_rate", hue="method", marker="o", palette=method_palette)
     else:
         for method, sub in by_noise.groupby("method", dropna=False):
-            plt.plot(sub["noise_level"], sub["residual_structured_rate"], marker="o", label=str(method))
+            plt.plot(sub["noise_level"], sub["residual_structured_rate"], marker="o", color=method_palette.get(method), label=str(method))
         plt.legend(title="method")
     plt.xscale("symlog", linthresh=0.001)
     plt.ylim(-0.05, 1.05)
@@ -1163,7 +1239,8 @@ def plot_figures(df: pd.DataFrame, by_noise: pd.DataFrame, out_dir: Path):
     plt.ylabel("Residual structured rate")
     plt.title("Residual Structure Remaining After Recovery")
     plt.tight_layout()
-    plt.savefig(fig_dir / "fig5d_residual_structure_rate.png", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig5d_residual_structure_rate.png", "noise_robustness", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig5d_residual_structure_rate.pdf", "noise_robustness")
     plt.close()
 
 
@@ -1384,7 +1461,7 @@ def parse_args():
     parser.add_argument("--timeout-grace-sec", type=float, default=30.0)
     parser.add_argument("--parent-timeout-sec", type=float, default=0.0)
     parser.add_argument("--max-cases", type=int, default=0)
-    parser.add_argument("--noise-levels", default="0,0.001,0.01")
+    parser.add_argument("--noise-levels", default="0,0.001,0.01,0.1")
     parser.add_argument("--dataset-manifest", default="", help="Optional fixed NoiseRobust-SR manifest.csv to read instead of generating splits.")
     parser.add_argument("--benchmarks", default=None, help="Optional comma-separated filter: Nguyen,Feynman,SRSD,Realistic.")
     parser.add_argument("--n-train", type=int, default=512)

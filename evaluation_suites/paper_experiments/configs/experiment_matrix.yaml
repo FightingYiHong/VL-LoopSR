@@ -5,6 +5,18 @@ run_defaults:
   base_method: scripts/test_fey_v11_complexity_exact.py
   pass_threshold:
     standard_recovery: 100
+  numerical_complete_fit_r2: 0.999
+  train_r2_early_stop:
+    enabled_by_default: false
+    threshold_when_enabled: 0.99999
+  candidate_selection:
+    split: validation
+    rule: "Preserve each method's native internal fitness and validation selector."
+    test_data_used_for_selection: false
+  candidate_pareto_analysis:
+    objectives: [validation_nmse, expression_tree_nodes]
+    role: "post-hoc diagnostic; does not change default candidate selection"
+  expression_complexity: "SymPy parsed expression-tree node count"
   per_case_timeout_sec:
     standard_recovery: 600
     ood_extrapolation: 600
@@ -39,9 +51,18 @@ experiments:
       srbench_feynman: "Random split with seed 42: test 25%, validation 20% of remaining train-val."
       srsd: "Use provided train/validation/test files."
     primary_readouts:
+      - numerical_complete_fit
+      - strict_formula_recovery
+      - first_validation_r2_gt_0_999_candidate_evaluation
+      - validation_search_success_rate
+      - success_by_candidate_evaluation_budget
       - pass_at_100
       - mse_pass
       - perfect_fit_rate
+      - test_rmse
+      - test_nmse
+      - test_nrmse
+      - srbench_formula_recovery
       - expression_complexity
       - runtime_sec
 
@@ -53,6 +74,7 @@ experiments:
     benchmarks:
       constructed62:
         cases: 62
+        range_expansion_factors: [1.25, 1.5, 1.75, 2.0]
         samples:
           fit: 256
           validation: 128
@@ -81,6 +103,10 @@ experiments:
       - mean_ood_log_mse
       - id_to_ood_shift
       - median_ood_id_degradation
+      - raw_ood_r2
+      - raw_ood_nmse
+      - negative_ood_r2_rate
+      - ood_nonfinite_prediction_rate
 
   03_high_dimensional_distractors:
     paper_figure: Fig. 4
@@ -114,8 +140,13 @@ experiments:
     primary_readouts:
       - mean_test_mse
       - median_test_mse
+      - numerical_complete_fit
+      - strict_formula_recovery
       - true_variable_recall
+      - true_variable_precision
       - false_discovery_rate
+      - irrelevant_variable_false_positive_rate
+      - exact_support_recovery
       - runtime_sec
 
   04_proposer_sft:
@@ -139,8 +170,12 @@ experiments:
         - evaluator
         - validation_selector
     primary_readouts:
+      - numerical_complete_fit
+      - strict_formula_recovery
       - candidate_count
       - recovered_case_mse
+      - test_rmse
+      - test_nmse
       - repair_utility
       - runtime_sec
       - timeout_fraction
@@ -149,14 +184,14 @@ experiments:
     paper_figure: Fig. 6
     status: runnable
     purpose: "Structural stability and compactness under noisy train/validation targets."
-    dataset_manifest: data/noise_robustness_smallrange_v1/manifest.csv
+    dataset_manifest: data/noise_robustness_metric_v2/manifest.csv
     runner: scripts/run_v11_noise_robustness.py
     baseline_runner: scripts/run_noise_robustness_baselines.py
     construction:
       formula_count: 20
-      noise_levels: [0, 0.001, 0.01]
-      seeds_per_formula_noise: 3
-      total_cases: 180
+      noise_levels: [0, 0.001, 0.01, 0.1]
+      seeds_per_formula_noise: 5
+      total_cases: 400
       split_sizes:
         train: 512
         validation: 256
@@ -171,8 +206,14 @@ experiments:
       - direct_llm
       - llm_sr
     primary_readouts:
+      - numerical_complete_fit
+      - strict_formula_recovery
       - skeleton_recovery
       - clean_test_mse
+      - clean_test_rmse
+      - clean_test_nmse
+      - clean_test_nrmse
+      - srbench_formula_recovery
       - expression_complexity
       - runtime_sec
       - timeout_fraction
@@ -200,6 +241,8 @@ experiments:
     primary_readouts:
       - mean_test_mse
       - median_test_mse
+      - numerical_complete_fit
+      - strict_formula_recovery
       - mse_lt_1
       - true_variable_recall
       - proxy_misuse

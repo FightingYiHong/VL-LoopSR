@@ -36,8 +36,16 @@ import pandas as pd
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
-from benchmark_metrics import evaluate_expression, safe_mse
+from benchmark_metrics import (
+    NUMERICAL_FIT_R2_THRESHOLD,
+    evaluate_expression,
+    expression_complexity as shared_expression_complexity,
+    regression_metrics,
+    srbench_formula_recovery,
+    strict_formula_recovery,
+)
 DEFAULT_V11_PATH = ROOT / "scripts" / "test_fey_v11_complexity_exact.py"
 PASS_MSE_THRESHOLD = 100.0
 EXACT_MSE_THRESHOLD = 1e-8
@@ -671,16 +679,8 @@ def import_v11_module(v11_path: Path, results_root: Path):
 
 
 def expr_complexity(expr) -> float | None:
-    if not isinstance(expr, str) or not expr.strip():
-        return None
-    try:
-        import sympy as sp
-
-        parsed = sp.sympify(expr)
-        return float(sp.count_ops(parsed, visual=False) + len(parsed.free_symbols))
-    except Exception:
-        tokens = [tok for tok in re.split(r"[^A-Za-z0-9_.]+", expr) if tok]
-        return float(len(tokens)) if tokens else None
+    value = shared_expression_complexity(expr).get("expr_complexity")
+    return float(value) if value is not None else None
 
 
 def variables_used(v11, expr: str | None, feature_names: list[str]) -> list[str]:
@@ -706,7 +706,10 @@ def recompute_final_expression_mse(result: dict, train_df: pd.DataFrame, val_df:
     try:
         for split_name, df in [("train", train_df), ("val", val_df), ("test", test_df)]:
             preds = evaluate_expression(expr, df, feature_names)
-            out[f"best_{split_name}_mse"] = safe_mse(np.asarray(df["y"], dtype=float), preds)
+            metrics = regression_metrics(np.asarray(df["y"], dtype=float), preds)
+            out[f"best_{split_name}_mse"] = metrics["mse"]
+            for metric_name, metric_value in metrics.items():
+                out[f"{split_name}_{metric_name}"] = metric_value
         out["final_expr_metric_eval_error"] = None
     except Exception as exc:
         out["final_expr_metric_eval_error"] = repr(exc)
@@ -725,6 +728,10 @@ def score_result(v11, case: HighDimCase, result: dict, train_df: pd.DataFrame | 
     true_variable_precision = len(active_set & true_set) / max(1, len(active_set))
     false_count = len(active_set - true_set)
     false_variable_discovery_rate = false_count / max(1, len(active_set))
+    irrelevant_variable_false_positive_rate = false_count / max(
+        1, case.dimension - len(true_set)
+    )
+    exact_support_recovery = active_set == true_set
     proxy_misuse = bool(active_set & proxy_set)
     nonlinear_decoy_misuse = bool(active_set & decoy_set)
     irrelevant_misuse = bool(active_set - true_set - proxy_set - decoy_set)
@@ -744,9 +751,23 @@ def score_result(v11, case: HighDimCase, result: dict, train_df: pd.DataFrame | 
         and false_variable_discovery_rate <= 0.25
         and test_mse_float <= SKELETON_MSE_THRESHOLD
     )
-    exact_recovery = bool(
+    exact_recovery_proxy = bool(
         active_set == true_set
         and test_mse_float <= EXACT_MSE_THRESHOLD
+    )
+    strict_recovery = strict_formula_recovery(
+        best_expr,
+        case.true_expression,
+        case.feature_names,
+    )
+    srbench_recovery = srbench_formula_recovery(
+        best_expr,
+        case.true_expression,
+        case.feature_names,
+    )
+    test_r2 = metric_updates.get("test_r2", result.get("test_r2"))
+    numerical_complete_fit = bool(
+        test_r2 is not None and float(test_r2) > NUMERICAL_FIT_R2_THRESHOLD
     )
 
     return {
@@ -757,12 +778,20 @@ def score_result(v11, case: HighDimCase, result: dict, train_df: pd.DataFrame | 
         "true_variable_recall": true_variable_recall,
         "true_variable_precision": true_variable_precision,
         "false_variable_discovery_rate": false_variable_discovery_rate,
+        "irrelevant_variable_false_positive_rate": irrelevant_variable_false_positive_rate,
+        "exact_support_recovery": exact_support_recovery,
         "wrong_variable_count": false_count,
         "proxy_misuse": proxy_misuse,
         "nonlinear_decoy_misuse": nonlinear_decoy_misuse,
         "irrelevant_misuse": irrelevant_misuse,
         "skeleton_recovery": skeleton_recovery,
-        "exact_recovery": exact_recovery,
+        "exact_recovery": bool(strict_recovery),
+        "strict_formula_recovery": bool(strict_recovery),
+        "strict_formula_recovery_evaluable": strict_recovery is not None,
+        "srbench_formula_recovery": bool(srbench_recovery),
+        "srbench_formula_recovery_evaluable": srbench_recovery is not None,
+        "exact_recovery_proxy": exact_recovery_proxy,
+        "numerical_complete_fit": numerical_complete_fit,
         "passed": bool(test_mse_float <= PASS_MSE_THRESHOLD),
         "expr_complexity": result.get("expr_complexity") or expr_complexity(best_expr),
         **metric_updates,
@@ -916,6 +945,9 @@ def summarize(rows: list[dict], out_dir: Path):
         "timed_out",
         "passed",
         "exact_recovery",
+        "strict_formula_recovery",
+        "numerical_complete_fit",
+        "exact_recovery_proxy",
         "skeleton_recovery",
         "proxy_misuse",
         "nonlinear_decoy_misuse",
@@ -923,11 +955,17 @@ def summarize(rows: list[dict], out_dir: Path):
         "true_variable_recall",
         "true_variable_precision",
         "false_variable_discovery_rate",
+        "irrelevant_variable_false_positive_rate",
+        "exact_support_recovery",
         "wrong_variable_count",
         "true_variable_count",
         "dimension",
         "interference_type",
         "best_test_mse",
+        "test_rmse",
+        "test_nmse",
+        "test_nrmse",
+        "test_r2",
         "runtime_sec",
         "expr_complexity",
     ]:
@@ -941,13 +979,20 @@ def summarize(rows: list[dict], out_dir: Path):
             timeout_rate=("timed_out", "mean"),
             pass_rate=("passed", "mean"),
             exact_recovery=("exact_recovery", "mean"),
+            numerical_complete_fit=("numerical_complete_fit", "mean"),
             skeleton_recovery=("skeleton_recovery", "mean"),
             true_variable_recall=("true_variable_recall", "mean"),
+            true_variable_precision=("true_variable_precision", "mean"),
             false_variable_discovery_rate=("false_variable_discovery_rate", "mean"),
+            irrelevant_variable_false_positive_rate=("irrelevant_variable_false_positive_rate", "mean"),
+            exact_support_recovery=("exact_support_recovery", "mean"),
             proxy_misuse_rate=("proxy_misuse", "mean"),
             nonlinear_decoy_misuse_rate=("nonlinear_decoy_misuse", "mean"),
             irrelevant_misuse_rate=("irrelevant_misuse", "mean"),
             median_test_mse=("best_test_mse", "median"),
+            median_test_rmse=("test_rmse", "median"),
+            median_test_nmse=("test_nmse", "median"),
+            median_test_nrmse=("test_nrmse", "median"),
             median_complexity=("expr_complexity", "median"),
             median_runtime_sec=("runtime_sec", "median"),
         )
@@ -960,6 +1005,15 @@ def summarize(rows: list[dict], out_dir: Path):
 
 def plot_figures(df: pd.DataFrame, summary: pd.DataFrame, out_dir: Path):
     import matplotlib.pyplot as plt
+    from tools.plot_style import (
+        COLOR_NEUTRAL_DARK,
+        INTERFERENCE_COLORS,
+        NATURE_CMAP,
+        NATURE_WARM_CMAP,
+        palette_for,
+        save_nature_figure,
+        set_nature_style,
+    )
 
     fig_dir = out_dir / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
@@ -967,10 +1021,7 @@ def plot_figures(df: pd.DataFrame, summary: pd.DataFrame, out_dir: Path):
         import seaborn as sns
     except Exception:
         sns = None
-    if sns is not None:
-        sns.set_theme(style="whitegrid")
-    else:
-        plt.style.use("ggplot")
+    set_nature_style(plt, sns)
 
     heat = summary.copy()
     heat["interference_label"] = heat["interference_type"].map(
@@ -984,9 +1035,9 @@ def plot_figures(df: pd.DataFrame, summary: pd.DataFrame, out_dir: Path):
     pivot_error = heat.pivot_table(index="dimension", columns="interference_label", values="false_variable_discovery_rate", aggfunc="mean")
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.0), sharey=True)
     if sns is not None:
-        sns.heatmap(pivot_recall, annot=True, fmt=".2f", cmap="YlGnBu", vmin=0, vmax=1, ax=axes[0])
+        sns.heatmap(pivot_recall, annot=True, fmt=".2f", cmap=NATURE_CMAP, vmin=0, vmax=1, ax=axes[0])
     else:
-        im0 = axes[0].imshow(pivot_recall.fillna(0.0).to_numpy(), cmap="YlGnBu", vmin=0, vmax=1, aspect="auto")
+        im0 = axes[0].imshow(pivot_recall.fillna(0.0).to_numpy(), cmap=NATURE_CMAP, vmin=0, vmax=1, aspect="auto")
         axes[0].set_xticks(range(len(pivot_recall.columns)), pivot_recall.columns, rotation=25, ha="right")
         axes[0].set_yticks(range(len(pivot_recall.index)), pivot_recall.index)
         for i in range(len(pivot_recall.index)):
@@ -996,9 +1047,9 @@ def plot_figures(df: pd.DataFrame, summary: pd.DataFrame, out_dir: Path):
         fig.colorbar(im0, ax=axes[0], fraction=0.046, pad=0.04)
     axes[0].set_title("true variable recall")
     if sns is not None:
-        sns.heatmap(pivot_error, annot=True, fmt=".2f", cmap="OrRd", vmin=0, vmax=1, ax=axes[1])
+        sns.heatmap(pivot_error, annot=True, fmt=".2f", cmap=NATURE_WARM_CMAP, vmin=0, vmax=1, ax=axes[1])
     else:
-        im1 = axes[1].imshow(pivot_error.fillna(0.0).to_numpy(), cmap="OrRd", vmin=0, vmax=1, aspect="auto")
+        im1 = axes[1].imshow(pivot_error.fillna(0.0).to_numpy(), cmap=NATURE_WARM_CMAP, vmin=0, vmax=1, aspect="auto")
         axes[1].set_xticks(range(len(pivot_error.columns)), pivot_error.columns, rotation=25, ha="right")
         axes[1].set_yticks(range(len(pivot_error.index)), pivot_error.index)
         for i in range(len(pivot_error.index)):
@@ -1009,11 +1060,13 @@ def plot_figures(df: pd.DataFrame, summary: pd.DataFrame, out_dir: Path):
     axes[1].set_title("wrong/proxy variable rate")
     fig.suptitle("Fig.3a High-Dim Interference Heatmap")
     plt.tight_layout()
-    plt.savefig(fig_dir / "fig3a_high_dim_interference_heatmap.png", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig3a_high_dim_interference_heatmap.png", "high_dimensional_interference", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig3a_high_dim_interference_heatmap.pdf", "high_dimensional_interference")
     plt.close(fig)
 
     plt.figure(figsize=(8.5, 4.8))
     if sns is not None:
+        hue_values = sorted(df["interference_type"].dropna().unique())
         sns.scatterplot(
             data=df,
             x="true_variable_recall",
@@ -1023,14 +1076,10 @@ def plot_figures(df: pd.DataFrame, summary: pd.DataFrame, out_dir: Path):
             size="true_variable_count",
             sizes=(55, 140),
             alpha=0.85,
+            palette=palette_for(hue_values),
         )
     else:
         markers = {200: "o", 500: "s", 1000: "^"}
-        colors = {
-            "independent_irrelevant": "#2b6cb0",
-            "correlated_proxy": "#c05621",
-            "nonlinear_decoy": "#2f855a",
-        }
         for _, row in df.iterrows():
             size = 45 + 18 * float(row.get("true_variable_count", 3) or 3)
             plt.scatter(
@@ -1038,7 +1087,7 @@ def plot_figures(df: pd.DataFrame, summary: pd.DataFrame, out_dir: Path):
                 row.get("false_variable_discovery_rate"),
                 s=size,
                 marker=markers.get(int(row.get("dimension", 50) or 50), "o"),
-                color=colors.get(row.get("interference_type"), "#444444"),
+                color=INTERFERENCE_COLORS.get(row.get("interference_type"), COLOR_NEUTRAL_DARK),
                 alpha=0.82,
                 label=str(row.get("interference_type")),
             )
@@ -1049,29 +1098,47 @@ def plot_figures(df: pd.DataFrame, summary: pd.DataFrame, out_dir: Path):
     plt.ylim(-0.04, 1.04)
     plt.title("Fig.3b Variable Selection: Recall vs False Discovery")
     plt.tight_layout()
-    plt.savefig(fig_dir / "fig3b_variable_selection_scatter.png", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig3b_variable_selection_scatter.png", "high_dimensional_interference", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig3b_variable_selection_scatter.pdf", "high_dimensional_interference")
     plt.close()
 
     fig, ax1 = plt.subplots(figsize=(8.5, 4.8))
     if sns is not None:
-        sns.lineplot(data=df, x="dimension", y="skeleton_recovery", hue="interference_type", marker="o", errorbar=None, ax=ax1)
+        hue_values = sorted(df["interference_type"].dropna().unique())
+        sns.lineplot(
+            data=df,
+            x="dimension",
+            y="skeleton_recovery",
+            hue="interference_type",
+            marker="o",
+            errorbar=None,
+            palette=palette_for(hue_values),
+            ax=ax1,
+        )
     else:
         grouped = df.groupby(["interference_type", "dimension"], dropna=False)["skeleton_recovery"].mean().reset_index()
         for interference_type, sub in grouped.groupby("interference_type"):
             sub = sub.sort_values("dimension")
-            ax1.plot(sub["dimension"], sub["skeleton_recovery"], marker="o", label=str(interference_type))
+            ax1.plot(
+                sub["dimension"],
+                sub["skeleton_recovery"],
+                marker="o",
+                color=INTERFERENCE_COLORS.get(interference_type, COLOR_NEUTRAL_DARK),
+                label=str(interference_type),
+            )
     ax1.set_ylim(-0.05, 1.05)
     ax1.set_ylabel("Skeleton Recovery")
     ax2 = ax1.twinx()
     runtime = df.groupby("dimension", dropna=False)["runtime_sec"].median().reset_index()
-    ax2.plot(runtime["dimension"], runtime["runtime_sec"], color="#333333", linestyle="--", marker="s", label="median runtime")
+    ax2.plot(runtime["dimension"], runtime["runtime_sec"], color=COLOR_NEUTRAL_DARK, linestyle="--", marker="s", label="median runtime")
     ax2.set_ylabel("Median Runtime (s)")
     ax1.set_title("Fig.3c Dimension Scaling")
     lines, labels = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(lines + lines2, labels + labels2, loc="best", frameon=True)
     plt.tight_layout()
-    plt.savefig(fig_dir / "fig3c_dimension_scaling_runtime.png", dpi=180)
+    save_nature_figure(fig, fig_dir / "fig3c_dimension_scaling_runtime.png", "high_dimensional_interference", dpi=180)
+    save_nature_figure(fig, fig_dir / "fig3c_dimension_scaling_runtime.pdf", "high_dimensional_interference")
     plt.close(fig)
 
 

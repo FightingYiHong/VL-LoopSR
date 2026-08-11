@@ -14,6 +14,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import copy
 from typing import Any, Dict, Iterable, List, Optional
 
 import numpy as np
@@ -21,6 +22,7 @@ import pandas as pd
 import sympy as sp
 
 import test_fey as _base
+from benchmark_metrics import pareto_front_indices, pareto_knee_index
 from tools.algebraic_simplify_tool import AlgebraicSimplifyTool as _BaseSimplifier
 from tools.algebraic_simplify_tool import SimplifyResult
 
@@ -40,6 +42,10 @@ V11_ABS_TOL = float(os.environ.get("LLMSR_V11_SELECTION_ABS_TOL", "1e-8"))
 V11_EXACT_TOL = float(os.environ.get("LLMSR_V11_EXACT_VAL_TOL", "1e-10"))
 V11_COMPLEXITY_WEIGHT = float(os.environ.get("LLMSR_V11_COMPLEXITY_WEIGHT", "0.05"))
 V11_COMPLEXITY_GAIN = float(os.environ.get("LLMSR_V11_COMPLEXITY_GAIN", "0.10"))
+V11_ENABLE_PARETO_SELECTION = os.environ.get("LLMSR_V11_ENABLE_PARETO_SELECTION", "0").strip().lower() in {"1", "true", "yes", "y"}
+V11_NUMERICAL_FIT_R2_THRESHOLD = float(os.environ.get("LLMSR_V11_NUMERICAL_FIT_R2_THRESHOLD", "0.999"))
+V11_EARLY_STOP_TRAIN_R2_THRESHOLD = float(os.environ.get("LLMSR_V11_EARLY_STOP_TRAIN_R2_THRESHOLD", "0.99999"))
+V11_ENABLE_TRAIN_R2_EARLY_STOP = os.environ.get("LLMSR_V11_ENABLE_TRAIN_R2_EARLY_STOP", "0").strip().lower() in {"1", "true", "yes", "y"}
 V11_CHOP_TOL = float(os.environ.get("LLMSR_V11_CHOP_TOL", "1e-10"))
 V11_MAX_NSIMP_OPS = int(os.environ.get("LLMSR_V11_MAX_NSIMP_OPS", "80"))
 V11_CRITIC_HIGH_COMPLEXITY = float(os.environ.get("LLMSR_V11_CRITIC_HIGH_COMPLEXITY", "18"))
@@ -53,6 +59,14 @@ V11_ENABLE_PROPOSER = os.environ.get("LLMSR_V11_ENABLE_PROPOSER", "1").strip().l
 V11_ENABLE_CRITIC_LOOP = os.environ.get("LLMSR_V11_ENABLE_CRITIC_LOOP", "1").strip().lower() in {"1", "true", "yes", "y"}
 V11_ENABLE_STRUCTURAL_RESCUE = os.environ.get("LLMSR_V11_ENABLE_STRUCTURAL_RESCUE", "1").strip().lower() in {"1", "true", "yes", "y"}
 V11_ENABLE_STRUCTURE_EVALUATOR = os.environ.get("LLMSR_V11_ENABLE_STRUCTURE_EVALUATOR", "1").strip().lower() in {"1", "true", "yes", "y"}
+V11_OBSERVER_INPUT_MODE = os.environ.get("LLMSR_V11_OBSERVER_INPUT_MODE", "native").strip().lower()
+V11_CRITIC_FEEDBACK_MODE = os.environ.get("LLMSR_V11_CRITIC_FEEDBACK_MODE", "agentic").strip().lower()
+V11_MATCH_REFINEMENT_BUDGET = os.environ.get("LLMSR_V11_MATCH_REFINEMENT_BUDGET", "0").strip().lower() in {"1", "true", "yes", "y"}
+V11_FORCE_REFINEMENT_ROUNDS = os.environ.get("LLMSR_V11_FORCE_REFINEMENT_ROUNDS", "0").strip().lower() in {"1", "true", "yes", "y"}
+V11_GENERIC_FEEDBACK_TEXT = os.environ.get(
+    "LLMSR_V11_GENERIC_FEEDBACK_TEXT",
+    "Improve validation fit while keeping the equation compact.\nTry local simplification and one alternative operator family.",
+)
 V11_STRUCTURE_SCORE_WEIGHT = float(os.environ.get("LLMSR_V11_STRUCTURE_SCORE_WEIGHT", "0.35"))
 V11_STRUCTURE_FAMILY_MIN_SCORE = float(os.environ.get("LLMSR_V11_STRUCTURE_FAMILY_MIN_SCORE", "0.20"))
 V11_PASS_MSE_FOCUS = os.environ.get("LLMSR_V11_PASS_MSE_FOCUS", "0").strip().lower() in {"1", "true", "yes", "y"}
@@ -127,6 +141,24 @@ V11_VLM_OBSERVER_MAX_ROWS = int(os.environ.get("LLMSR_V11_VLM_OBSERVER_MAX_ROWS"
 V11_VLM_OBSERVER_MAX_TOKENS = int(os.environ.get("LLMSR_V11_VLM_OBSERVER_MAX_TOKENS", "900"))
 V11_VLM_OBSERVER_TEMPERATURE = float(os.environ.get("LLMSR_V11_VLM_OBSERVER_TEMPERATURE", "0.1"))
 V11_RESTORE_TEXT_PROPOSER = os.environ.get("LLMSR_V11_RESTORE_TEXT_PROPOSER", "0").strip().lower() in {"1", "true", "yes", "y"}
+V11_FORCE_INITIAL_MODALITY_PROPOSAL = os.environ.get(
+    "LLMSR_V11_FORCE_INITIAL_MODALITY_PROPOSAL", "0"
+).strip().lower() in {"1", "true", "yes", "y"}
+V11_MATCHED_MODALITY_CALLS = max(
+    1, int(os.environ.get("LLMSR_V11_MATCHED_MODALITY_CALLS", "1"))
+)
+V11_MATCHED_INITIAL_CANDIDATES = max(
+    1, int(os.environ.get("LLMSR_V11_MATCHED_INITIAL_CANDIDATES", "20"))
+)
+V11_MATCHED_MM_MAX_ROWS = max(
+    4, int(os.environ.get("LLMSR_V11_MATCHED_MM_MAX_ROWS", "12"))
+)
+V11_MATCHED_MM_MAX_TOKENS = max(
+    96, int(os.environ.get("LLMSR_V11_MATCHED_MM_MAX_TOKENS", "384"))
+)
+V11_MATCHED_MM_CANDIDATES_PER_CALL = max(
+    1, int(os.environ.get("LLMSR_V11_MATCHED_MM_CANDIDATES_PER_CALL", "1"))
+)
 
 
 def _env_runtime_budget_sec() -> Optional[float]:
@@ -525,6 +557,38 @@ def _complexity(item) -> float:
     return value if value is not None else float("inf")
 
 
+def _validation_r2(item) -> Optional[float]:
+    return _finite_float(_base._safe_get_attr(item, "val_r2", None))
+
+
+def _validation_nmse(item) -> Optional[float]:
+    value = _finite_float(_base._safe_get_attr(item, "val_nmse", None))
+    if value is not None:
+        return value
+    r2 = _validation_r2(item)
+    return None if r2 is None else float(1.0 - r2)
+
+
+def _passes_validation_fit(item) -> bool:
+    value = _validation_r2(item)
+    return value is not None and value > V11_NUMERICAL_FIT_R2_THRESHOLD
+
+
+def _mark_pareto_front(items) -> list[int]:
+    errors = [
+        _validation_nmse(item)
+        if _validation_nmse(item) is not None
+        else (_raw_val_mse(item) if _raw_val_mse(item) is not None else float("inf"))
+        for item in items
+    ]
+    complexities = [_complexity(item) for item in items]
+    front = pareto_front_indices(errors, complexities)
+    front_set = set(front)
+    for idx, item in enumerate(items):
+        setattr(item, "on_validation_pareto_front", idx in front_set)
+    return front
+
+
 def _dataset_val_size(dataset) -> Optional[int]:
     val_df = getattr(dataset, "val_df", None)
     if val_df is not None:
@@ -893,12 +957,11 @@ def _quality_key(item):
 
 
 def get_best_result(scored_results):
-    """Choose simpler formulas among validation-near-ties.
+    """Choose a candidate with the method's existing validation-fitness rule.
 
-    The base scorer already includes a small complexity term, but later
-    improvement checks often replaced a compact expression with a tiny
-    validation-MSE gain and much larger formula.  This selector keeps the best
-    validation MSE as the anchor, then uses complexity inside a narrow tolerance.
+    Test and OOD data are never used here. Pareto-based selection is retained as
+    an explicit ablation switch, while the default keeps the original internal
+    fitness behavior and records the Pareto front only as a post-hoc diagnostic.
     """
     if not scored_results:
         return None
@@ -906,6 +969,31 @@ def get_best_result(scored_results):
     finite = [item for item in scored_results if _val_mse(item) is not None]
     if not finite:
         return scored_results[0]
+
+    if V11_ENABLE_PARETO_SELECTION:
+        _mark_pareto_front(finite)
+        qualified = [item for item in finite if _passes_validation_fit(item)]
+        if qualified:
+            selected = min(
+                qualified,
+                key=lambda item: (
+                    float(_complexity(item)),
+                    float(_raw_val_mse(item) or 0.0),
+                    len(str(_base._safe_get_attr(item, "simplified_expression", "") or "")),
+                ),
+            )
+            setattr(selected, "selection_reason", "validation_r2_then_min_complexity")
+            return selected
+        errors = [
+            _raw_val_mse(item) if _raw_val_mse(item) is not None else float("inf")
+            for item in finite
+        ]
+        complexities = [_complexity(item) for item in finite]
+        knee_idx = pareto_knee_index(errors, complexities)
+        if knee_idx is not None:
+            selected = finite[knee_idx]
+            setattr(selected, "selection_reason", "validation_pareto_knee")
+            return selected
 
     if V11_RAW_EXACT_VAL_PRIORITY:
         raw_exact = [
@@ -947,6 +1035,46 @@ def is_better_result(candidate, incumbent):
         return False
     if incumbent is None:
         return True
+
+    if V11_ENABLE_PARETO_SELECTION:
+        candidate_passes = _passes_validation_fit(candidate)
+        incumbent_passes = _passes_validation_fit(incumbent)
+        if candidate_passes != incumbent_passes:
+            return candidate_passes
+        if candidate_passes and incumbent_passes:
+            candidate_key = (
+                _complexity(candidate),
+                _raw_val_mse(candidate) if _raw_val_mse(candidate) is not None else float("inf"),
+            )
+            incumbent_key = (
+                _complexity(incumbent),
+                _raw_val_mse(incumbent) if _raw_val_mse(incumbent) is not None else float("inf"),
+            )
+            return candidate_key < incumbent_key
+
+        candidate_error = _raw_val_mse(candidate)
+        incumbent_error = _raw_val_mse(incumbent)
+        if candidate_error is not None and incumbent_error is not None:
+            candidate_dominates = (
+                candidate_error <= incumbent_error
+                and _complexity(candidate) <= _complexity(incumbent)
+                and (
+                    candidate_error < incumbent_error
+                    or _complexity(candidate) < _complexity(incumbent)
+                )
+            )
+            incumbent_dominates = (
+                incumbent_error <= candidate_error
+                and _complexity(incumbent) <= _complexity(candidate)
+                and (
+                    incumbent_error < candidate_error
+                    or _complexity(incumbent) < _complexity(candidate)
+                )
+            )
+            if candidate_dominates:
+                return True
+            if incumbent_dominates:
+                return False
 
     cand_val = _pass_focus_metric(candidate)
     inc_val = _pass_focus_metric(incumbent)
@@ -1024,13 +1152,33 @@ class V11StructureAwareScoringTool(_base.ScoringTool):
 
     def score_single(self, item):
         scored = super().score_single(item)
+        val = _finite_float(scored.val_mse)
+        train = _finite_float(scored.train_mse)
+        train_df = getattr(self.dataset, "train_df", None)
+        val_df = getattr(self.dataset, "val_df", None)
+        if train is not None and train_df is not None and "y" in train_df:
+            y_train = np.asarray(train_df["y"], dtype=float)
+            variance = float(np.var(y_train)) if len(y_train) else 0.0
+            train_r2 = None
+            if variance > 1e-12:
+                train_r2 = float(1.0 - float(train) / variance)
+            setattr(scored, "train_r2", train_r2)
+        if val is not None and val_df is not None and "y" in val_df:
+            y_val = np.asarray(val_df["y"], dtype=float)
+            variance = float(np.var(y_val)) if len(y_val) else 0.0
+            val_r2 = None
+            val_nmse = None
+            if variance > 1e-12:
+                val_nmse = float(val) / variance
+                val_r2 = float(1.0 - val_nmse)
+            setattr(scored, "val_r2", val_r2)
+            setattr(scored, "val_nmse", val_nmse)
         if not V11_ENABLE_STRUCTURE_EVALUATOR or not scored.success:
             return scored
         feature_names = list(getattr(self.dataset, "feature_names", []) or [])
         structure = _score_candidate_structure(scored.simplified_expression, feature_names, self.reference)
         structure_score = float(structure.get("structure_score", 0.0) or 0.0)
         penalty = max(0.0, 1.0 - structure_score)
-        val = _finite_float(scored.val_mse)
         if val is not None:
             # Multiplicative adjustment keeps MSE dominant while breaking
             # near-ties toward candidates whose variables/operators match the
@@ -1128,14 +1276,22 @@ class V11EvaluatorAgent(_base.EvaluatorAgent):
             setattr(item, "_v11_structure_adjusted", True)
         return item
 
-    def _evaluation_table(self, scored_results):
+    def _evaluation_table(self, scored_results, limit=_base.META_TOPK):
         table = []
-        for item in list(scored_results or [])[: _base.META_TOPK]:
+        items = list(scored_results or [])
+        if limit is not None:
+            items = items[: int(limit)]
+        for item in items:
             table.append({
                 "expr": _base._safe_get_attr(item, "simplified_expression", None),
+                "train_r2": _base._safe_get_attr(item, "train_r2", None),
                 "val_mse": _base._safe_get_attr(item, "val_mse", None),
+                "val_r2": _base._safe_get_attr(item, "val_r2", None),
+                "val_nmse": _validation_nmse(item),
                 "test_mse": _base._safe_get_attr(item, "test_mse", None),
                 "complexity": _base._safe_get_attr(item, "complexity", None),
+                "on_validation_pareto_front": _base._safe_get_attr(item, "on_validation_pareto_front", False),
+                "selection_reason": _base._safe_get_attr(item, "selection_reason", None),
                 "score": _base._safe_get_attr(item, "score", None),
                 "selection_metric": _base._safe_get_attr(item, "selection_metric", None),
                 "small_sample_cv_mse": _base._safe_get_attr(item, "small_sample_cv_mse", None),
@@ -1154,20 +1310,26 @@ class V11EvaluatorAgent(_base.EvaluatorAgent):
                 row_meta=row_meta or self.current_row_meta,
             )
         out = super().evaluate(candidate_exprs, dataset, row_meta=row_meta, timer=timer, prefix=prefix, **kwargs)
+        scored_results = list(out.get("scored_results", []) or [])
         if V11_ENABLE_STRUCTURE_EVALUATOR:
             scored_results = [
                 self._apply_structure_eval_to_item(item, dataset)
-                for item in list(out.get("scored_results", []) or [])
+                for item in scored_results
             ]
             scored_results = sorted(scored_results, key=_quality_key)
             out["scored_results"] = scored_results
-            out["best_result"] = get_best_result(scored_results)
-            out["evaluation_table"] = self._evaluation_table(scored_results)
             out["structure_evaluator"] = {
                 "enabled": True,
                 "weight": V11_STRUCTURE_SCORE_WEIGHT,
                 "reference": _base.make_json_safe(getattr(self.scorer, "reference", {})),
             }
+        front = _mark_pareto_front(scored_results)
+        if V11_ENABLE_STRUCTURE_EVALUATOR:
+            out["best_result"] = get_best_result(scored_results)
+        out["evaluation_table"] = self._evaluation_table(scored_results)
+        out["candidate_pareto_table"] = self._evaluation_table(scored_results, limit=None)
+        out["pareto_front_size"] = len(front)
+        out["pareto_objectives"] = ["validation_nmse", "expression_tree_nodes"]
         return out
 
 
@@ -1433,6 +1595,12 @@ class CriticAgent(_base.MetaAgent):
 
     def decide(self, dataset, observation, evaluation, current_best, iter_cfg, round_idx, row_meta=None, diagnostic_image_paths=None):
         self._critic_dataset = dataset
+        # A numeric-only arm must remain text-only throughout the agent loop,
+        # including Critic residual diagnostics.  A non-existent sentinel
+        # prevents the base MetaAgent from auto-generating an image when an
+        # empty/None list is supplied; the base class filters it before use.
+        if V11_OBSERVER_INPUT_MODE in {"numeric", "numeric_only", "no_image", "no_images"}:
+            diagnostic_image_paths = ["__llmsr_numeric_only_no_image__"]
         try:
             decision = super().decide(
                 dataset,
@@ -1478,6 +1646,111 @@ class CriticAgent(_base.MetaAgent):
         return decision
 
 
+def _stable_visual_control_seed(row_meta) -> int:
+    repeat = os.environ.get("LLMSR_REPEAT_SEED", "0")
+    text = f"{(row_meta or {}).get('base_name', '')}|{(row_meta or {}).get('dataset_case_id', '')}|{repeat}"
+    return int(sum((idx + 1) * ord(ch) for idx, ch in enumerate(text)) % (2**32 - 1))
+
+
+def _dataset_with_permuted_train_target(dataset, row_meta):
+    cloned = copy.copy(dataset)
+    train_df = dataset.train_df.copy()
+    target_name = getattr(dataset, "target_name", "y")
+    if target_name in train_df.columns:
+        rng = np.random.default_rng(_stable_visual_control_seed(row_meta))
+        train_df[target_name] = rng.permutation(np.asarray(train_df[target_name], dtype=float))
+    cloned.train_df = train_df
+    return cloned
+
+
+def _copy_observation_without_graphics(observation):
+    out = copy.copy(observation)
+    out.plot_descriptions = []
+    out.image_paths = []
+    out.visual_hints = ["no graphical evidence supplied"]
+    out.reconstruction_image_paths = []
+    out.reconstruction_descriptions = []
+    visual_summary = dict(getattr(out, "visual_summary", None) or {})
+    visual_summary["num_plots"] = 0
+    visual_summary["plot_inventory"] = []
+    out.visual_summary = _base.make_json_safe(visual_summary)
+    out.mm_assets_attempted = True
+    out.mm_assets_succeeded = False
+    return out
+
+
+def _copy_observation_with_control_visuals(observation, visual_observation):
+    out = copy.copy(observation)
+    out.plot_descriptions = list(getattr(visual_observation, "plot_descriptions", []) or [])
+    out.image_paths = list(getattr(visual_observation, "image_paths", []) or [])
+    out.visual_hints = list(getattr(visual_observation, "visual_hints", []) or []) or ["plots generated but no explicit visual hints"]
+    out.reconstruction_image_paths = list(getattr(visual_observation, "reconstruction_image_paths", []) or [])
+    out.reconstruction_descriptions = list(getattr(visual_observation, "reconstruction_descriptions", []) or [])
+    out.visual_summary = _base.make_json_safe(
+        getattr(visual_observation, "visual_summary", None) or getattr(observation, "visual_summary", {}) or {}
+    )
+    out.structure_profile = _base.make_json_safe(getattr(observation, "structure_profile", {}) or {})
+    out.structure_hints = list(getattr(observation, "structure_hints", []) or [])
+    out.mm_assets_attempted = bool(getattr(visual_observation, "mm_assets_attempted", True))
+    out.mm_assets_succeeded = bool(getattr(visual_observation, "mm_assets_succeeded", bool(out.image_paths)))
+    out.mm_assets_error = getattr(visual_observation, "mm_assets_error", None)
+    return out
+
+
+def _matched_round_candidate_limit(iter_cfg) -> int:
+    return max(1, int((iter_cfg or {}).get("refined_k", V11_FULL_BUDGET_REFINED_K)))
+
+
+def _generic_judge_feedback() -> Dict[str, Any]:
+    lines = [line.strip() for line in str(V11_GENERIC_FEEDBACK_TEXT).splitlines() if line.strip()]
+    return {
+        "feedback_text": "\n".join(lines),
+        "keep_constraints": ["keep the equation compact"],
+        "repair_targets": ["improve validation fit", "try one alternative operator family"],
+        "avoid_patterns": ["avoid repeating failed structures without simplification"],
+        "raw_text": "generic fixed feedback control",
+        "control_mode": "generic",
+    }
+
+
+def _generic_refinement_decision(current_best, iter_cfg, round_idx: int) -> Dict[str, Any]:
+    current_expr = _base._safe_get_attr(current_best, "simplified_expression", None) if current_best is not None else None
+    return {
+        "should_refine": True,
+        "critic_action": "refine",
+        "reason": "generic matched feedback control",
+        "target_exprs": [current_expr] if current_expr else [],
+        "preserve_patterns": [],
+        "repair_targets": ["validation fit", "compactness", "alternative operator family"],
+        "actions": ["local simplification", "operator-family alternative"],
+        "target_families": [],
+        "active_variables": [],
+        "budget": {
+            "num_candidates": _matched_round_candidate_limit(iter_cfg),
+            "temperature": 0.35,
+            "use_multimodal": False,
+        },
+        "round_idx": int(round_idx),
+        "control_mode": "generic",
+    }
+
+
+def _force_matched_refinement_budget(decision: Dict[str, Any], iter_cfg, round_idx: int) -> Dict[str, Any]:
+    out = dict(decision or {})
+    budget = dict(out.get("budget", {}) or {})
+    budget["num_candidates"] = _matched_round_candidate_limit(iter_cfg)
+    budget["use_multimodal"] = False
+    out["budget"] = budget
+    out["round_idx"] = int(round_idx)
+    if V11_FORCE_REFINEMENT_ROUNDS:
+        out["should_refine"] = True
+        if str(out.get("critic_action") or "").lower() == "stop":
+            out["original_critic_action"] = out.get("critic_action")
+            out["critic_action"] = "refine"
+            out["reason"] = f"forced matched-budget refinement after stop suggestion: {out.get('reason', '')}"
+    return out
+
+
 class V11ObserverAgent:
     """Programmatic Observer + optional VLM Observer augmentation.
 
@@ -1496,16 +1769,40 @@ class V11ObserverAgent:
     def observe(self, dataset, row_meta, timer=None):
         observation = self.inner.observe(dataset, row_meta=row_meta, timer=timer)
         if not self.enabled:
-            return observation
+            return self._apply_observer_input_mode(dataset, row_meta, observation, timer=timer)
 
         if V11_VLM_OBSERVER_GENERATE_IMAGES and not list(getattr(observation, "image_paths", []) or []):
             observation = self.inner.maybe_generate_mm_assets(dataset, row_meta, observation, timer=timer)
 
+        observation = self._apply_observer_input_mode(dataset, row_meta, observation, timer=timer)
         vlm_result = self._call_vlm_observer(dataset, row_meta, observation)
         return self._merge_vlm_observation(dataset, observation, vlm_result)
 
     def maybe_generate_mm_assets(self, dataset, row_meta, observation, timer=None):
-        return self.inner.maybe_generate_mm_assets(dataset, row_meta, observation, timer=timer)
+        observation = self.inner.maybe_generate_mm_assets(dataset, row_meta, observation, timer=timer)
+        return self._apply_observer_input_mode(dataset, row_meta, observation, timer=timer)
+
+    def _apply_observer_input_mode(self, dataset, row_meta, observation, timer=None):
+        mode = V11_OBSERVER_INPUT_MODE
+        if mode in {"native", "aligned", "aligned_control", "multimodal"}:
+            return observation
+        if mode in {"numeric", "numeric_only", "no_image", "no_images"}:
+            return _copy_observation_without_graphics(observation)
+        if mode in {"permuted", "permuted_control", "shuffled_visual", "visual_control"}:
+            permuted_dataset = _dataset_with_permuted_train_target(dataset, row_meta)
+            plot_meta = dict(row_meta or {})
+            plot_meta["base_name"] = f"{plot_meta.get('base_name', 'case')}_visual_control"
+            visual_seed = copy.copy(observation)
+            visual_seed.plot_descriptions = []
+            visual_seed.image_paths = []
+            visual_seed.visual_hints = []
+            visual_seed.reconstruction_tokens = None
+            visual_seed.reconstruction_trace = None
+            visual_seed.reconstruction_image_paths = []
+            visual_seed.reconstruction_descriptions = []
+            visual_observation = self.inner.maybe_generate_mm_assets(permuted_dataset, plot_meta, visual_seed, timer=timer)
+            return _copy_observation_with_control_visuals(observation, visual_observation)
+        return observation
 
     def _selected_images(self, observation) -> List[str]:
         image_paths = list(getattr(observation, "image_paths", []) or [])
@@ -1852,6 +2149,106 @@ def _sync_runtime_globals():
     _apply_v11_patch()
 
 
+def _matched_initial_mm_proposal(
+    proposer_agent,
+    observer_agent,
+    dataset,
+    observation,
+    row_meta,
+    iter_cfg,
+    timer=None,
+):
+    """One compact, auditable image-conditioned proposal call."""
+    try:
+        image_paths = list(observer_agent._selected_images(observation) or [])
+    except Exception:
+        image_paths = list(getattr(observation, "image_paths", []) or [])[:1]
+    image_paths = image_paths[:1]
+    if not image_paths:
+        return {
+            "candidate_exprs": [],
+            "trace": {
+                "num_mm_exprs": 0,
+                "image_paths": [],
+                "error": "no_image_available_for_matched_multimodal_proposal",
+            },
+        }
+
+    structure_profile = dict(getattr(observation, "structure_profile", {}) or {})
+    visual_summary = dict(getattr(observation, "visual_summary", {}) or {})
+    try:
+        structure_profile, visual_summary = _base._compact_observation_for_prompt(
+            structure_profile=structure_profile,
+            visual_summary=visual_summary,
+        )
+    except Exception:
+        pass
+
+    if timer is not None:
+        timer.start("step_matched_initial_mm_proposal")
+    try:
+        form_result = _base.generate_multiple_mm_formula_form_candidates(
+            client=proposer_agent.proposal_llm.client,
+            df=dataset.train_df,
+            variable_names=dataset.feature_names,
+            target_name=dataset.target_name,
+            image_paths=image_paths,
+            plot_descriptions=list(getattr(observation, "plot_descriptions", []) or [])[:4],
+            structure_hints=list(getattr(observation, "structure_hints", []) or [])[:8],
+            structure_profile=structure_profile,
+            visual_summary=visual_summary,
+            reconstruction_tokens=None,
+            allowed_operators=_base.ALLOWED_OPERATORS,
+            max_rows=V11_MATCHED_MM_MAX_ROWS,
+            num_calls=V11_MATCHED_MODALITY_CALLS,
+            temperatures=[0.1],
+            max_tokens=V11_MATCHED_MM_MAX_TOKENS,
+            max_workers=1,
+            num_candidates_per_call=V11_MATCHED_MM_CANDIDATES_PER_CALL,
+        )
+        form_exprs = [
+            str(item.get("expression", "")).strip()
+            for item in list(form_result.get("candidates", []) or [])
+            if isinstance(item, dict) and str(item.get("expression", "")).strip()
+        ]
+        guided_candidates = _base.build_vlm_guided_template_candidates(
+            candidate_items=list(form_result.get("candidates", []) or []),
+            feature_names=dataset.feature_names,
+            row_meta=row_meta,
+            top_k_per_item=1,
+        )
+        guided_exprs = [
+            str(item.get("expression", "")).strip()
+            for item in list(guided_candidates or [])
+            if isinstance(item, dict) and str(item.get("expression", "")).strip()
+        ]
+        exprs = _base.deduplicate_expressions(guided_exprs + form_exprs)
+        return {
+            "candidate_exprs": exprs,
+            "trace": {
+                "num_mm_exprs": len(exprs),
+                "image_paths": image_paths,
+                "max_rows": V11_MATCHED_MM_MAX_ROWS,
+                "max_tokens": V11_MATCHED_MM_MAX_TOKENS,
+                "num_candidates_per_call": V11_MATCHED_MM_CANDIDATES_PER_CALL,
+                "form_proposal_stats": _base.make_json_safe(form_result),
+                "guided_template_count": len(guided_exprs),
+            },
+        }
+    except Exception as exc:
+        return {
+            "candidate_exprs": [],
+            "trace": {
+                "num_mm_exprs": 0,
+                "image_paths": image_paths,
+                "error": repr(exc),
+            },
+        }
+    finally:
+        if timer is not None:
+            timer.stop("step_matched_initial_mm_proposal")
+
+
 def _make_loop_result(row_meta, dataset, iter_cfg):
     return {
         "eval_profile": getattr(_base, "EVAL_PROFILE", None),
@@ -1944,6 +2341,18 @@ def _make_loop_result(row_meta, dataset, iter_cfg):
         "judge_feedback_history": None,
         "proposal_history": None,
         "evaluation_history": None,
+        "candidate_evaluation_history": None,
+        "validation_search_threshold": float(V11_NUMERICAL_FIT_R2_THRESHOLD),
+        "validation_search_success": False,
+        "validation_search_censored": True,
+        "evaluations_to_validation_success": None,
+        "unique_evaluations_to_validation_success": None,
+        "validation_search_observed_evaluations": 0,
+        "total_candidate_evaluations": 0,
+        "total_unique_candidate_evaluations": 0,
+        "first_validation_success_stage": None,
+        "first_validation_success_expression": None,
+        "first_validation_success_val_r2": None,
         "meta_plan_history": None,
         "error": None,
     }
@@ -2887,11 +3296,76 @@ def _finalize_image_loop(
     result["judge_feedback_history"] = _base.json.dumps(_base.make_json_safe(judge_feedback_history), ensure_ascii=False)
     result["proposal_history"] = _base.json.dumps(_base.make_json_safe(proposal_history), ensure_ascii=False)
     result["evaluation_history"] = _base.json.dumps(_base.make_json_safe(evaluation_history), ensure_ascii=False)
+    search_state = _base.candidate_search_audit_state(dataset)
+    candidate_history = list(search_state.get("records", []) or [])
+    result["candidate_evaluation_history"] = _base.json.dumps(
+        _base.make_json_safe(candidate_history),
+        ensure_ascii=False,
+    )
+    expression_evaluations = len(candidate_history)
+    unique_expression_evaluations = len(search_state.get("seen_candidate_keys", {}) or {})
+    first_success = next(
+        (
+            item
+            for item in candidate_history
+            if _finite_float(item.get("val_r2")) is not None
+            and float(item["val_r2"]) > float(V11_NUMERICAL_FIT_R2_THRESHOLD)
+        ),
+        None,
+    )
+    elapsed_for_rate = max(0.0, float(_base.time.time() - start))
+    result["expression_evaluations"] = expression_evaluations
+    result["total_candidate_evaluations"] = expression_evaluations
+    result["total_unique_candidate_evaluations"] = unique_expression_evaluations
+    result["validation_search_threshold"] = float(V11_NUMERICAL_FIT_R2_THRESHOLD)
+    result["validation_search_success"] = bool(first_success is not None)
+    result["validation_search_censored"] = bool(first_success is None)
+    result["evaluations_to_validation_success"] = (
+        int(first_success["evaluation_index"]) if first_success is not None else None
+    )
+    result["unique_evaluations_to_validation_success"] = (
+        int(first_success["unique_evaluations_seen"]) if first_success is not None else None
+    )
+    result["validation_search_observed_evaluations"] = (
+        int(first_success["evaluation_index"])
+        if first_success is not None
+        else int(expression_evaluations)
+    )
+    result["first_validation_success_stage"] = (
+        first_success.get("stage") if first_success is not None else None
+    )
+    result["first_validation_success_expression"] = (
+        first_success.get("fitted_expression") or first_success.get("expression")
+        if first_success is not None else None
+    )
+    result["first_validation_success_val_r2"] = (
+        first_success.get("val_r2") if first_success is not None else None
+    )
+    result["evaluations_per_sec"] = (
+        float(expression_evaluations / elapsed_for_rate)
+        if elapsed_for_rate > 0 else None
+    )
     result["meta_plan_history"] = _base.json.dumps(_base.make_json_safe(meta_decisions), ensure_ascii=False)
     result["agent_trace"] = _base.json.dumps(_base.make_json_safe(agent_trace), ensure_ascii=False)
     result["best_expr_source"] = (
         str(_base._safe_get_attr(current_best, "source", "scored_result"))
         if current_best is not None else None
+    )
+    result["selection_reason"] = (
+        _base._safe_get_attr(current_best, "selection_reason", None)
+        if current_best is not None else None
+    )
+    result["selected_val_r2"] = (
+        _base._safe_get_attr(current_best, "val_r2", None)
+        if current_best is not None else None
+    )
+    result["selected_train_r2"] = (
+        _base._safe_get_attr(current_best, "train_r2", None)
+        if current_best is not None else None
+    )
+    result["selected_on_validation_pareto_front"] = bool(
+        _base._safe_get_attr(current_best, "on_validation_pareto_front", False)
+        if current_best is not None else False
     )
     result["no_leakage_audit"] = _base.json.dumps(_base.make_json_safe({
         "method_mode": getattr(_base, "METHOD_MODE", None),
@@ -2903,6 +3377,12 @@ def _finalize_image_loop(
         "adaptive_multimodal_triggered": bool(mm_requested),
         "test_split_used_for_selection": bool(getattr(_base, "USE_TEST_FOR_SELECTION", False)),
         "selection_uses_validation_only": not bool(getattr(_base, "USE_TEST_FOR_SELECTION", False)),
+        "pareto_selection_enabled": bool(V11_ENABLE_PARETO_SELECTION),
+        "pareto_candidate_analysis_enabled": True,
+        "pareto_objectives": ["validation_nmse", "expression_tree_nodes"],
+        "validation_r2_threshold": float(V11_NUMERICAL_FIT_R2_THRESHOLD),
+        "train_r2_early_stop_enabled": bool(V11_ENABLE_TRAIN_R2_EARLY_STOP),
+        "train_r2_early_stop_threshold": float(V11_EARLY_STOP_TRAIN_R2_THRESHOLD),
     }), ensure_ascii=False)
     return _base._finalize_result(
         result=result,
@@ -2921,6 +3401,7 @@ def _finalize_image_loop(
 
 def _run_core_pipeline(dataset, row_meta):
     _sync_runtime_globals()
+    _base.reset_candidate_search_audit(dataset)
     start = _base.time.time()
     timer = _base.StepTimer()
     task_deadline_ts = _base._task_deadline_from_start(start)
@@ -3156,16 +3637,117 @@ def _run_core_pipeline(dataset, row_meta):
                 mm_used_in_evaluation=mm_used_in_evaluation,
             )
 
+        initial_iter_cfg = dict(iter_cfg)
+        native_multimodal_arm = V11_OBSERVER_INPUT_MODE in {
+            "native", "aligned", "aligned_control", "multimodal"
+        }
+        numeric_only_arm = V11_OBSERVER_INPUT_MODE in {
+            "numeric", "numeric_only", "no_image", "no_images"
+        }
+        if V11_FORCE_INITIAL_MODALITY_PROPOSAL:
+            # The matched ablation spends one model call on the treatment
+            # modality only: image-conditioned proposal for the native arm,
+            # numeric/text proposal for the control arm. Deterministic shared
+            # candidate sources remain enabled in both arms.
+            initial_iter_cfg["text_calls"] = (
+                0 if native_multimodal_arm else V11_MATCHED_MODALITY_CALLS
+            )
+            initial_iter_cfg["mm_calls"] = (
+                V11_MATCHED_MODALITY_CALLS if native_multimodal_arm else 0
+            )
+
         initial_prop = proposer_agent.propose_initial(
             dataset=dataset,
             row_meta=row_meta,
             observation=observation,
-            iter_cfg=iter_cfg,
+            iter_cfg=initial_iter_cfg,
             experience_prior=guidance_prior,
             timer=timer,
         )
         initial_exprs = list(initial_prop.get("candidate_exprs", []) or [])
         prop_trace = dict(initial_prop.get("trace", {}) or {})
+
+        initial_modality_exprs = []
+        initial_modality_trace = {}
+        initial_modality_mode = "shared_default"
+        if V11_FORCE_INITIAL_MODALITY_PROPOSAL and native_multimodal_arm:
+            mm_requested = True
+            mm_trigger_reason = "forced_matched_initial_multimodal_proposal"
+            mm_prop = _matched_initial_mm_proposal(
+                proposer_agent=proposer_agent,
+                observer_agent=observer_agent,
+                dataset=dataset,
+                observation=observation,
+                row_meta=row_meta,
+                iter_cfg=initial_iter_cfg,
+                timer=timer,
+            )
+            initial_modality_exprs = list(mm_prop.get("candidate_exprs", []) or [])
+            initial_modality_trace = dict(mm_prop.get("trace", {}) or {})
+            mm_prop_trace = initial_modality_trace
+            mm_candidate_count += len(initial_modality_exprs)
+            prop_trace["mm_proposal_stats"] = _base.make_json_safe(
+                initial_modality_trace
+            )
+            initial_modality_mode = "image_conditioned"
+        elif V11_FORCE_INITIAL_MODALITY_PROPOSAL and numeric_only_arm:
+            text_stats = dict(prop_trace.get("text_proposal_stats", {}) or {})
+            initial_modality_exprs = [
+                str(item.get("expression", "")).strip()
+                for item in list(text_stats.get("candidates", []) or [])
+                if isinstance(item, dict) and str(item.get("expression", "")).strip()
+            ]
+            initial_modality_trace = text_stats
+            initial_modality_mode = "numeric_text_control"
+
+        if V11_FORCE_INITIAL_MODALITY_PROPOSAL:
+            # Put the treatment/control model candidates in an equal reserved
+            # prefix, then fill from the shared deterministic pool. Both arms
+            # submit exactly the same maximum number of initial candidates.
+            initial_exprs = _base.deduplicate_expressions(
+                list(initial_modality_exprs) + list(initial_exprs)
+            )[:V11_MATCHED_INITIAL_CANDIDATES]
+            proposal_history.append({
+                "stage": "initial_matched_modality_proposer",
+                "mode": initial_modality_mode,
+                "num_exprs": len(initial_modality_exprs),
+                "submitted_exprs": _base.make_json_safe(
+                    initial_exprs[:min(len(initial_modality_exprs), len(initial_exprs))]
+                ),
+                "exprs": _base.make_json_safe(initial_modality_exprs),
+                "image_paths": _base.make_json_safe(
+                    list(initial_modality_trace.get("image_paths", []) or [])
+                    if native_multimodal_arm else []
+                ),
+                "trace": _base.make_json_safe(initial_modality_trace),
+            })
+            result["initial_modality_proposal_mode"] = initial_modality_mode
+            result["initial_modality_candidate_count"] = len(initial_modality_exprs)
+            result["initial_modality_candidates_submitted"] = min(
+                len(initial_modality_exprs), len(initial_exprs)
+            )
+            result["initial_modality_input_image_count"] = (
+                len(list(initial_modality_trace.get("image_paths", []) or []))
+                if native_multimodal_arm else 0
+            )
+            result["initial_modality_proposal_valid"] = bool(
+                initial_modality_exprs
+                and (not native_multimodal_arm or result["initial_modality_input_image_count"] > 0)
+            )
+            result["initial_modality_failure_reason"] = (
+                None
+                if result["initial_modality_proposal_valid"]
+                else (
+                    "image_conditioned_proposer_returned_no_candidates"
+                    if native_multimodal_arm
+                    else "numeric_text_control_returned_no_candidates"
+                )
+            )
+            if native_multimodal_arm:
+                result["mm_proposal_stats"] = _base.json.dumps(
+                    _base.make_json_safe(initial_modality_trace), ensure_ascii=False
+                )
+
         extrap_ols_exprs, extrap_ols_trace = _build_extrapolation_ols_candidates(dataset, row_meta=row_meta)
         surface_analytic_exprs, surface_analytic_trace = _build_surface_analytic_candidates(dataset, row_meta=row_meta)
         surface_grid_exprs, surface_grid_trace = _build_surface_grid_basis_candidates(dataset, row_meta=row_meta)
@@ -3185,6 +3767,10 @@ def _run_core_pipeline(dataset, row_meta):
             prop_trace["surface_grid"] = _base.make_json_safe(surface_grid_trace)
             prop_trace["surface_stable"] = _base.make_json_safe(surface_stable_trace)
             prop_trace["constructed_extrapolation"] = _base.make_json_safe(constructed_trace)
+        if V11_FORCE_INITIAL_MODALITY_PROPOSAL:
+            initial_exprs = _base.deduplicate_expressions(
+                list(initial_modality_exprs) + list(initial_exprs)
+            )[:V11_MATCHED_INITIAL_CANDIDATES]
         result["raw_exprs"] = _base.json.dumps(_base.make_json_safe(initial_exprs), ensure_ascii=False)
         result["num_candidate_exprs"] = len(initial_exprs)
         result["text_proposal_stats"] = _base.json.dumps(_base.make_json_safe(prop_trace.get("text_proposal_stats")), ensure_ascii=False)
@@ -3210,7 +3796,12 @@ def _run_core_pipeline(dataset, row_meta):
         result["proposal_source_stats"] = _base.json.dumps(_base.make_json_safe(prop_trace.get("source_stats")), ensure_ascii=False)
         result["experience_rerank"] = _base.json.dumps(_base.make_json_safe(prop_trace.get("experience_rerank")), ensure_ascii=False)
         result["merged_candidate_count"] = prop_trace.get("merged_candidate_count")
-        proposal_history.append({"stage": "initial_proposer", "num_exprs": len(initial_exprs), "trace": _base.make_json_safe(prop_trace)})
+        proposal_history.append({
+            "stage": "initial_proposer",
+            "num_exprs": len(initial_exprs),
+            "exprs": _base.make_json_safe(initial_exprs),
+            "trace": _base.make_json_safe(prop_trace),
+        })
         _base._raise_if_task_budget_exceeded(task_deadline_ts, "initial_proposer")
 
         # 3. Evaluator Agent
@@ -3222,10 +3813,22 @@ def _run_core_pipeline(dataset, row_meta):
             prefix="loop_initial",
             deadline_ts=task_deadline_ts,
         )
+        if (
+            V11_FORCE_INITIAL_MODALITY_PROPOSAL
+            and native_multimodal_arm
+            and initial_modality_exprs
+            and int(active_eval.get("evaluated_candidate_count") or 0) > 0
+        ):
+            mm_used_in_evaluation = True
         current_best = active_eval.get("best_result")
         evaluation_history.append({
             "stage": "initial_evaluator",
+            "requested_candidate_count": active_eval.get("requested_candidate_count"),
+            "evaluated_candidate_count": active_eval.get("evaluated_candidate_count"),
+            "evaluation_truncated": active_eval.get("evaluation_truncated"),
             "topk": active_eval.get("evaluation_table"),
+            "pareto_candidates": active_eval.get("candidate_pareto_table"),
+            "pareto_front_size": active_eval.get("pareto_front_size"),
             "structure_evaluator": active_eval.get("structure_evaluator"),
             "residual_summary": active_eval.get("residual_summary"),
             "physics_summary": active_eval.get("physics_summary"),
@@ -3238,6 +3841,16 @@ def _run_core_pipeline(dataset, row_meta):
 
         max_rounds = max(0, int(iter_cfg.get("refine_rounds", V11_IMAGE_LOOP_MAX_ROUNDS)))
         max_rounds = min(max_rounds, V11_IMAGE_LOOP_MAX_ROUNDS)
+        initial_train_r2 = _finite_float(_base._safe_get_attr(current_best, "train_r2", None))
+        if (
+            V11_ENABLE_TRAIN_R2_EARLY_STOP
+            and initial_train_r2 is not None
+            and initial_train_r2 > V11_EARLY_STOP_TRAIN_R2_THRESHOLD
+        ):
+            max_rounds = 0
+            result["early_stop_reason"] = (
+                f"train_r2>{V11_EARLY_STOP_TRAIN_R2_THRESHOLD:g}"
+            )
         if not V11_ENABLE_CRITIC_LOOP:
             max_rounds = 0
             result["early_stop_reason"] = "ablation_disable_critic_loop"
@@ -3257,6 +3870,16 @@ def _run_core_pipeline(dataset, row_meta):
                 round_idx=round_idx,
                 row_meta=row_meta,
             )
+            _base._raise_if_task_budget_exceeded(
+                task_deadline_ts,
+                f"critic_round_{round_num}_decision",
+            )
+            raw_critic_decision = _base.make_json_safe(decision)
+            if V11_CRITIC_FEEDBACK_MODE == "generic":
+                decision = _generic_refinement_decision(current_best, iter_cfg, round_idx)
+                decision["discarded_critic_decision"] = raw_critic_decision
+            elif V11_MATCH_REFINEMENT_BUDGET:
+                decision = _force_matched_refinement_budget(decision, iter_cfg, round_idx)
             meta_decisions.append(_base.make_json_safe(decision))
             action = str(decision.get("critic_action") or "refine")
             agent_trace.append({
@@ -3296,6 +3919,10 @@ def _run_core_pipeline(dataset, row_meta):
                     row_meta=row_meta,
                     timer=timer,
                 )
+                _base._raise_if_task_budget_exceeded(
+                    task_deadline_ts,
+                    f"critic_round_{round_num}_multimodal_proposal",
+                )
                 mm_exprs = list(mm_prop.get("candidate_exprs", []) or [])
                 mm_prop_trace = mm_prop.get("trace")
                 mm_candidate_count += len(mm_exprs)
@@ -3303,6 +3930,7 @@ def _run_core_pipeline(dataset, row_meta):
                 proposal_history.append({
                     "stage": f"round_{round_num}_adaptive_multimodal",
                     "num_exprs": len(mm_exprs),
+                    "exprs": _base.make_json_safe(mm_exprs),
                     "trace": _base.make_json_safe(mm_prop_trace),
                 })
 
@@ -3316,8 +3944,21 @@ def _run_core_pipeline(dataset, row_meta):
                 meta_decision=decision,
                 iter_cfg=iter_cfg,
             )
+            _base._raise_if_task_budget_exceeded(
+                task_deadline_ts,
+                f"critic_round_{round_num}_judge",
+            )
+            if V11_CRITIC_FEEDBACK_MODE == "generic":
+                discarded_judge_feedback = _base.make_json_safe(judge_feedback)
+                judge_feedback = _generic_judge_feedback()
+                judge_feedback["discarded_judge_feedback"] = discarded_judge_feedback
             judge_feedback_history.append(_base.make_json_safe(judge_feedback))
             try:
+                refiner_diagnostic_image_paths = decision.get("diagnostic_image_paths")
+                if V11_OBSERVER_INPUT_MODE in {"numeric", "numeric_only", "no_image", "no_images"}:
+                    # See CriticAgent.decide: the base Refiner otherwise
+                    # auto-creates and sends residual images for an empty list.
+                    refiner_diagnostic_image_paths = ["__llmsr_numeric_only_no_image__"]
                 refined = refiner_agent.refine(
                     dataset=dataset,
                     observation=observation,
@@ -3326,7 +3967,7 @@ def _run_core_pipeline(dataset, row_meta):
                     judge_feedback=judge_feedback,
                     iter_cfg=iter_cfg,
                     row_meta=row_meta,
-                    diagnostic_image_paths=decision.get("diagnostic_image_paths"),
+                    diagnostic_image_paths=refiner_diagnostic_image_paths,
                 )
             except TypeError as exc:
                 if "unexpected keyword argument" not in str(exc):
@@ -3339,7 +3980,7 @@ def _run_core_pipeline(dataset, row_meta):
                         meta_decision=decision,
                         judge_feedback=judge_feedback,
                         iter_cfg=iter_cfg,
-                        diagnostic_image_paths=decision.get("diagnostic_image_paths"),
+                        diagnostic_image_paths=refiner_diagnostic_image_paths,
                     )
                 except TypeError as inner_exc:
                     if "unexpected keyword argument" not in str(inner_exc):
@@ -3352,6 +3993,10 @@ def _run_core_pipeline(dataset, row_meta):
                         judge_feedback=judge_feedback,
                         iter_cfg=iter_cfg,
                     )
+            _base._raise_if_task_budget_exceeded(
+                task_deadline_ts,
+                f"critic_round_{round_num}_refiner",
+            )
             refined_exprs = list(refined.get("candidate_exprs", []) or [])
             augmented_exprs, augment_trace = _build_critic_augmented_candidates(
                 decision=decision,
@@ -3362,10 +4007,13 @@ def _run_core_pipeline(dataset, row_meta):
             )
             round_exprs = _base.deduplicate_expressions(refined_exprs + augmented_exprs)
             round_exprs = round_exprs[:V11_IMAGE_LOOP_MAX_AUGMENTED_CANDIDATES]
+            if V11_MATCH_REFINEMENT_BUDGET:
+                round_exprs = round_exprs[:_matched_round_candidate_limit(iter_cfg)]
             refine_round_expr_counts.append(len(round_exprs))
             proposal_history.append({
                 "stage": f"round_{round_num}_critic_conditioned_proposer",
                 "num_exprs": len(round_exprs),
+                "exprs": _base.make_json_safe(round_exprs),
                 "trace": {
                     "critic_decision": _base.make_json_safe(decision),
                     "judge_feedback": _base.make_json_safe(judge_feedback),
@@ -3393,7 +4041,12 @@ def _run_core_pipeline(dataset, row_meta):
             evaluation_history.append({
                 "stage": f"round_{round_num}_evaluator",
                 "critic_action": action,
+                "requested_candidate_count": round_eval.get("requested_candidate_count"),
+                "evaluated_candidate_count": round_eval.get("evaluated_candidate_count"),
+                "evaluation_truncated": round_eval.get("evaluation_truncated"),
                 "topk": round_eval.get("evaluation_table"),
+                "pareto_candidates": round_eval.get("candidate_pareto_table"),
+                "pareto_front_size": round_eval.get("pareto_front_size"),
                 "structure_evaluator": round_eval.get("structure_evaluator"),
                 "residual_summary": round_eval.get("residual_summary"),
                 "physics_summary": round_eval.get("physics_summary"),
@@ -3414,6 +4067,16 @@ def _run_core_pipeline(dataset, row_meta):
                 "best_val_mse_after_round": _base._safe_get_attr(current_best, "val_mse", None) if current_best is not None else None,
             })
             record_round_timing(round_num, round_start, "completed", {"critic_action": action, "improved": bool(improved)})
+            current_train_r2 = _finite_float(_base._safe_get_attr(current_best, "train_r2", None))
+            if (
+                V11_ENABLE_TRAIN_R2_EARLY_STOP
+                and current_train_r2 is not None
+                and current_train_r2 > V11_EARLY_STOP_TRAIN_R2_THRESHOLD
+            ):
+                result["early_stop_reason"] = (
+                    f"train_r2>{V11_EARLY_STOP_TRAIN_R2_THRESHOLD:g}"
+                )
+                break
 
         return _finalize_image_loop(
             result=result,

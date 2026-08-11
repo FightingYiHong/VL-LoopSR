@@ -1356,6 +1356,11 @@ def evaluate_candidate_expressions(
         init_scale=fit_init_scale,
         deadline_ts=deadline_ts,
     )
+    record_candidate_search_audit(
+        dataset=dataset,
+        stage=str(prefix),
+        fit_results=fit_results,
+    )
     if timer is not None:
         timer.stop(f"{prefix}_template_fit")
 
@@ -1378,6 +1383,73 @@ def evaluate_candidate_expressions(
         timer.stop(f"{prefix}_scoring")
 
     return fit_results, simplify_results, unique_results, scored_results
+
+
+def reset_candidate_search_audit(dataset):
+    state = {
+        "records": [],
+        "seen_candidate_keys": {},
+    }
+    setattr(dataset, "_candidate_search_audit_state", state)
+    return state
+
+
+def candidate_search_audit_state(dataset):
+    state = getattr(dataset, "_candidate_search_audit_state", None)
+    if not isinstance(state, dict):
+        state = reset_candidate_search_audit(dataset)
+    state.setdefault("records", [])
+    state.setdefault("seen_candidate_keys", {})
+    return state
+
+
+def share_candidate_search_audit(source_dataset, target_dataset):
+    state = candidate_search_audit_state(source_dataset)
+    setattr(target_dataset, "_candidate_search_audit_state", state)
+    return state
+
+
+def record_candidate_search_audit(dataset, stage, fit_results):
+    """Record fitted candidates in their actual evaluator input order."""
+    state = candidate_search_audit_state(dataset)
+    records = state["records"]
+    seen = state["seen_candidate_keys"]
+    val_df = getattr(dataset, "val_df", None)
+    target_name = getattr(dataset, "target_name", "y")
+    val_variance = None
+    if val_df is not None and target_name in val_df:
+        y_val = np.asarray(val_df[target_name], dtype=float)
+        if len(y_val):
+            variance = float(np.var(y_val))
+            if np.isfinite(variance) and variance > 0.0:
+                val_variance = variance
+
+    for stage_index, item in enumerate(list(fit_results or []), start=1):
+        expression = str(_safe_get_attr(item, "expression", "") or "")
+        key = _expr_dedup_key(expression)
+        is_new_unique = key not in seen
+        if is_new_unique:
+            seen[key] = len(seen) + 1
+
+        val_mse = _safe_metric_float(_safe_get_attr(item, "val_mse", None))
+        val_r2 = None
+        if val_mse is not None and val_variance is not None:
+            val_r2 = float(1.0 - float(val_mse) / float(val_variance))
+
+        records.append({
+            "evaluation_index": len(records) + 1,
+            "unique_evaluations_seen": len(seen),
+            "first_unique_evaluation_index": int(seen[key]),
+            "is_new_unique_candidate": bool(is_new_unique),
+            "stage": str(stage),
+            "stage_evaluation_index": int(stage_index),
+            "expression": expression,
+            "fitted_expression": _safe_get_attr(item, "fitted_expression", None),
+            "success": bool(_safe_get_attr(item, "success", False)),
+            "val_mse": val_mse,
+            "val_r2": val_r2,
+        })
+    return records
 
 
 def merge_expression_lists(*expr_lists):
@@ -8087,9 +8159,15 @@ def save_all_outputs(all_results, overall_start):
             "valid_formula_found", "num_candidate_exprs", "best_expr",
             "initial_best_form_match_score", "vlm_best_form_match_score",
             "best_train_mse", "best_val_mse", "best_test_mse",
+            "train_rmse", "val_rmse", "test_rmse",
+            "train_nmse", "val_nmse", "test_nmse",
+            "train_nrmse", "val_nrmse", "test_nrmse",
             "train_r2", "val_r2", "test_r2",
             "expr_complexity", "expr_depth", "expr_string_length", "expr_sympy_ops",
-            "passed", "perfect_fit", "perfect_fit_by_r2", "metric_eval_error",
+            "passed", "perfect_fit", "perfect_fit_by_r2", "numerical_complete_fit",
+            "strict_formula_recovery", "strict_formula_recovery_evaluable",
+            "srbench_formula_recovery", "srbench_formula_recovery_evaluable",
+            "early_stop_train_fit", "metric_eval_error",
             "runtime_sec", "error"
         ] if c in df.columns
     ]
@@ -8135,6 +8213,39 @@ def save_all_outputs(all_results, overall_start):
             [float(x) for x in df.loc[df["valid_formula_found"] == True, "expr_complexity"].tolist()
              if isinstance(x, numbers.Number) and np.isfinite(x)]
         ) if "valid_formula_found" in df and "expr_complexity" in df else None,
+        "numerical_complete_fit_rate": (
+            float(df["numerical_complete_fit"].fillna(False).astype(bool).mean())
+            if "numerical_complete_fit" in df and len(df)
+            else None
+        ),
+        "strict_formula_recovery_rate_evaluable": (
+            float(
+                df.loc[
+                    df["strict_formula_recovery_evaluable"].fillna(False).astype(bool),
+                    "strict_formula_recovery",
+                ].fillna(False).astype(bool).mean()
+            )
+            if {
+                "strict_formula_recovery",
+                "strict_formula_recovery_evaluable",
+            }.issubset(df.columns)
+            and df["strict_formula_recovery_evaluable"].fillna(False).astype(bool).any()
+            else None
+        ),
+        "srbench_formula_recovery_rate_evaluable": (
+            float(
+                df.loc[
+                    df["srbench_formula_recovery_evaluable"].fillna(False).astype(bool),
+                    "srbench_formula_recovery",
+                ].fillna(False).astype(bool).mean()
+            )
+            if {
+                "srbench_formula_recovery",
+                "srbench_formula_recovery_evaluable",
+            }.issubset(df.columns)
+            and df["srbench_formula_recovery_evaluable"].fillna(False).astype(bool).any()
+            else None
+        ),
         "avg_step_times": avg_step_times,
     }
     with open(GLOBAL_SUMMARY_JSON, "w", encoding="utf-8") as f:
@@ -8374,6 +8485,8 @@ def _prediction_residual_diagnostic_image(dataset, row_meta, current_best, round
         import matplotlib
         matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
+        from tools.plot_style import COLOR_NEUTRAL_DARK, NATURE_COLORS, save_nature_figure, set_nature_style
+        set_nature_style(plt)
 
         dataset_dir = str((row_meta or {}).get("dataset_dir", "dataset"))
         base_name = str((row_meta or {}).get("base_name", "case"))
@@ -8384,14 +8497,14 @@ def _prediction_residual_diagnostic_image(dataset, row_meta, current_best, round
 
         mse = float(np.mean(residual ** 2))
         fig, axes = plt.subplots(1, 3, figsize=(11.2, 3.4), dpi=140)
-        color = "#2f6fbb"
-        accent = "#d14f3f"
+        color = NATURE_COLORS["blue"]
+        accent = NATURE_COLORS["vermillion"]
 
         if len(feature_names) == 1 and feature_names[0] in df.columns:
             x_name = feature_names[0]
             x = np.asarray(df[x_name], dtype=float)
             order = np.argsort(x)
-            axes[0].scatter(x, target, s=16, c="black", alpha=0.75, label="target")
+            axes[0].scatter(x, target, s=16, c=COLOR_NEUTRAL_DARK, alpha=0.75, label="target")
             axes[0].plot(x[order], pred[order], color=color, linewidth=1.7, label="prediction")
             axes[0].set_xlabel(x_name)
             axes[0].set_ylabel(target_name)
@@ -8402,20 +8515,20 @@ def _prediction_residual_diagnostic_image(dataset, row_meta, current_best, round
             if not np.isfinite(lo) or not np.isfinite(hi) or abs(hi - lo) < 1e-12:
                 lo, hi = -1.0, 1.0
             axes[0].scatter(target, pred, s=16, c=color, alpha=0.72)
-            axes[0].plot([lo, hi], [lo, hi], color="black", linewidth=1.0, linestyle="--")
+            axes[0].plot([lo, hi], [lo, hi], color=COLOR_NEUTRAL_DARK, linewidth=1.0, linestyle="--")
             axes[0].set_xlabel(f"true {target_name}")
             axes[0].set_ylabel(f"predicted {target_name}")
         axes[0].set_title(f"{split_name} prediction")
 
         x_top = np.asarray(df[top_feature], dtype=float)
         axes[1].scatter(x_top, residual, s=16, c=accent, alpha=0.72)
-        axes[1].axhline(0.0, color="black", linewidth=1.0, linestyle="--")
+        axes[1].axhline(0.0, color=COLOR_NEUTRAL_DARK, linewidth=1.0, linestyle="--")
         axes[1].set_xlabel(top_feature)
         axes[1].set_ylabel("residual")
         axes[1].set_title(f"residual vs {top_feature}")
 
-        axes[2].scatter(pred, residual, s=16, c="#4a8f64", alpha=0.72)
-        axes[2].axhline(0.0, color="black", linewidth=1.0, linestyle="--")
+        axes[2].scatter(pred, residual, s=16, c=NATURE_COLORS["green"], alpha=0.72)
+        axes[2].axhline(0.0, color=COLOR_NEUTRAL_DARK, linewidth=1.0, linestyle="--")
         axes[2].set_xlabel(f"predicted {target_name}")
         axes[2].set_ylabel("residual")
         axes[2].set_title(f"residual pattern, MSE={mse:.3g}")
@@ -8425,7 +8538,7 @@ def _prediction_residual_diagnostic_image(dataset, row_meta, current_best, round
             ax.tick_params(labelsize=7)
         fig.suptitle(f"{stage} round {int(round_idx) + 1}: {expr[:90]}", fontsize=8)
         fig.tight_layout(rect=[0, 0, 1, 0.92])
-        fig.savefig(out_path, bbox_inches="tight")
+        save_nature_figure(fig, out_path, "agent_diagnostics", bbox_inches="tight")
         plt.close(fig)
         return out_path
     except Exception:
@@ -9533,6 +9646,7 @@ def lightweight_prefilter_candidates(candidate_exprs, dataset, timer=None, prefi
         tmpdir = Path(td)
         small_dataset = build_dataset_from_explicit_splits(small_train, dataset.val_df, dataset.test_df, tmpdir)
         small_dataset.source_tag = getattr(dataset, "source_tag", "")
+        share_candidate_search_audit(dataset, small_dataset)
         _, _, _, small_scored = evaluate_candidate_expressions(
             candidate_exprs=candidate_exprs,
             dataset=small_dataset,

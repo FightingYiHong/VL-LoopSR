@@ -248,10 +248,10 @@ Reproducibility
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--out-dir", default=str(ROOT / "data" / "noise_robustness_smallrange_v1"))
+    parser.add_argument("--out-dir", default=str(ROOT / "data" / "noise_robustness_metric_v2"))
     parser.add_argument("--formula-count", type=int, default=20)
-    parser.add_argument("--noise-levels", default="0,0.001,0.01")
-    parser.add_argument("--repeat-seeds", type=int, default=3)
+    parser.add_argument("--noise-levels", default="0,0.001,0.01,0.1")
+    parser.add_argument("--repeat-seeds", type=int, default=5)
     parser.add_argument("--n-train", type=int, default=512)
     parser.add_argument("--n-val", type=int, default=256)
     parser.add_argument("--n-test", type=int, default=1024)

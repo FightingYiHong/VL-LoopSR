@@ -10,6 +10,8 @@ import numpy as np
 import pandas as pd
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
+from tools.plot_style import NATURE_CMAP, NATURE_COLORS, NATURE_WARM_CMAP, save_nature_figure, set_nature_style
+
 try:
     from sklearn.cross_decomposition import PLSRegression
 except Exception:  # pragma: no cover - optional dependency fallback
@@ -1039,6 +1041,7 @@ class HighDimReconstructionTool:
         save_path = os.path.join(output_dir, f"{prefix}_global_surrogate_surface.png")
         desc = "global surrogate response surface in supervised z1-z2 space"
         try:
+            set_nature_style(plt)
             zz1 = np.asarray(surface_bundle.get("z1_grid"), dtype=float)
             zz2 = np.asarray(surface_bundle.get("z2_grid"), dtype=float)
             surface = np.asarray(surface_bundle.get("surface"), dtype=float)
@@ -1047,11 +1050,11 @@ class HighDimReconstructionTool:
 
             fig = plt.figure(figsize=(9.2, 7.0))
             ax = fig.add_subplot(111, projection="3d")
-            surf = ax.plot_surface(zz1, zz2, np.nan_to_num(surface, nan=np.nanmean(signal) if signal.size else 0.0), cmap="viridis", linewidth=0.0, antialiased=True, alpha=0.92)
+            surf = ax.plot_surface(zz1, zz2, np.nan_to_num(surface, nan=np.nanmean(signal) if signal.size else 0.0), cmap=NATURE_CMAP, linewidth=0.0, antialiased=True, alpha=0.92)
             if samples.size > 0 and signal.size == samples.shape[0]:
                 keep = min(180, samples.shape[0])
                 idx = np.linspace(0, samples.shape[0] - 1, num=keep, dtype=int)
-                ax.scatter(samples[idx, 0], samples[idx, 1], signal[idx], c=signal[idx], cmap="viridis", s=9, alpha=0.35)
+                ax.scatter(samples[idx, 0], samples[idx, 1], signal[idx], c=signal[idx], cmap=NATURE_CMAP, s=9, alpha=0.35)
             ax.set_xlabel("z1")
             ax.set_ylabel("z2")
             ax.set_zlabel("proxy y")
@@ -1061,7 +1064,7 @@ class HighDimReconstructionTool:
             )
             fig.colorbar(surf, ax=ax, shrink=0.7, pad=0.08, label="proxy response")
             fig.tight_layout()
-            fig.savefig(save_path, dpi=170)
+            save_nature_figure(fig, save_path, "high_dimensional_reconstruction", dpi=170)
             plt.close(fig)
             return ReconstructionArtifact(save_path, desc, True, None)
         except Exception as e:
@@ -1083,6 +1086,7 @@ class HighDimReconstructionTool:
         save_path = os.path.join(output_dir, f"{prefix}_overview_panel.png")
         desc = "overview panel with global surface, feature importance, local curves, pair heatmaps, and summary"
         try:
+            set_nature_style(plt)
             zz1 = np.asarray(surface_bundle.get("z1_grid"), dtype=float)
             zz2 = np.asarray(surface_bundle.get("z2_grid"), dtype=float)
             surface = np.asarray(surface_bundle.get("surface"), dtype=float)
@@ -1095,13 +1099,13 @@ class HighDimReconstructionTool:
             top_importance = list(feature_records[:6])
             names = [str(item.get("variable", "")) for item in top_importance][::-1]
             values = [float(item.get("importance", 0.0) or 0.0) for item in top_importance][::-1]
-            ax_import.barh(names, values, color="#4C72B0")
+            ax_import.barh(names, values, color=NATURE_COLORS["blue"])
             ax_import.set_title("proxy feature importance")
             ax_import.set_xlabel("importance")
             ax_import.grid(alpha=0.15, axis="x")
 
             ax_surface = fig.add_subplot(grid[0, 1:4])
-            contour = ax_surface.contourf(zz1, zz2, np.nan_to_num(surface, nan=np.nanmean(surface[np.isfinite(surface)]) if np.any(np.isfinite(surface)) else 0.0), levels=18, cmap="viridis")
+            contour = ax_surface.contourf(zz1, zz2, np.nan_to_num(surface, nan=np.nanmean(surface[np.isfinite(surface)]) if np.any(np.isfinite(surface)) else 0.0), levels=18, cmap=NATURE_CMAP)
             if samples.size > 0:
                 keep = min(220, samples.shape[0])
                 idx = np.linspace(0, samples.shape[0] - 1, num=keep, dtype=int)
@@ -1120,7 +1124,7 @@ class HighDimReconstructionTool:
                 centers = np.asarray(panel.get("centers", []), dtype=float)
                 curve = np.asarray(panel.get("curve", []), dtype=float)
                 var = str(panel.get("variable", "")).strip()
-                ax.plot(centers, curve, color="#1f77b4", linewidth=2.0)
+                ax.plot(centers, curve, color=NATURE_COLORS["blue"], linewidth=2.0)
                 ax.set_title(f"y vs {var}")
                 ax.set_xlabel(var)
                 ax.set_ylabel("response")
@@ -1135,7 +1139,7 @@ class HighDimReconstructionTool:
                 if heatmap.ndim != 2 or len(variables) < 2:
                     ax.axis("off")
                     continue
-                im = ax.imshow(heatmap.T, origin="lower", aspect="auto", cmap="magma")
+                im = ax.imshow(heatmap.T, origin="lower", aspect="auto", cmap=NATURE_WARM_CMAP)
                 ax.set_title(f"{variables[0]} x {variables[1]}")
                 ax.set_xlabel(variables[0])
                 ax.set_ylabel(variables[1])
@@ -1158,7 +1162,7 @@ class HighDimReconstructionTool:
             )
 
             fig.tight_layout()
-            fig.savefig(save_path, dpi=170)
+            save_nature_figure(fig, save_path, "high_dimensional_reconstruction", dpi=170)
             plt.close(fig)
             return ReconstructionArtifact(save_path, desc, True, None)
         except Exception as e:
@@ -1180,13 +1184,14 @@ class HighDimReconstructionTool:
             save_path = os.path.join(output_dir, f"{prefix}_recon_unary_{var}.png")
             desc = f"reconstructed unary response field of y versus {var}"
             try:
+                set_nature_style(plt)
                 plt.figure(figsize=(6, 4))
-                plt.plot(centers, curve, linewidth=2.0)
+                plt.plot(centers, curve, linewidth=2.0, color=NATURE_COLORS["blue"])
                 plt.xlabel(var)
                 plt.ylabel("reconstructed response")
                 plt.title(f"reconstructed response profile: {var}")
                 plt.tight_layout()
-                plt.savefig(save_path, dpi=160)
+                save_nature_figure(plt, save_path, "high_dimensional_reconstruction", dpi=160)
                 plt.close()
                 artifacts.append(ReconstructionArtifact(save_path, desc, True, None))
             except Exception as e:
@@ -1209,14 +1214,15 @@ class HighDimReconstructionTool:
             save_path = os.path.join(output_dir, f"{prefix}_recon_pair_{variables[0]}_{variables[1]}.png")
             desc = f"reconstructed pair response field on {variables[0]}-{variables[1]} plane"
             try:
+                set_nature_style(plt)
                 plt.figure(figsize=(5.4, 4.8))
-                plt.imshow(heatmap.T, origin="lower", aspect="auto", cmap="viridis")
+                plt.imshow(heatmap.T, origin="lower", aspect="auto", cmap=NATURE_CMAP)
                 plt.xlabel(variables[0])
                 plt.ylabel(variables[1])
                 plt.title(f"reconstructed pair field: {variables[0]}-{variables[1]}")
                 plt.colorbar(label="reconstructed response")
                 plt.tight_layout()
-                plt.savefig(save_path, dpi=160)
+                save_nature_figure(plt, save_path, "high_dimensional_reconstruction", dpi=160)
                 plt.close()
                 artifacts.append(ReconstructionArtifact(save_path, desc, True, None))
             except Exception as e:

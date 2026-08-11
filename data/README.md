@@ -5,8 +5,12 @@ the current paper launchers.
 
 ## Included
 
+- `noise_robustness_metric_v2/`
+  - Current NoiseRobust-Metric manifest and split files.
+  - 20 formulas x 4 noise levels x 5 seeds = 400 tasks.
+
 - `noise_robustness_smallrange_v1/`
-  - Default NoiseRobust-SmallRange manifest.
+  - Legacy NoiseRobust-SmallRange manifest retained for comparison.
   - 20 formulas x 3 noise levels x 3 seeds = 180 tasks.
 
 - `noise_robustness_v1_20/`
@@ -22,6 +26,9 @@ the current paper launchers.
   - Complete synthetic 10,000-example multimodal Proposer SFT package.
   - Includes 5,000 1D, 3,000 2D/surface, and 2,000 high-dimensional examples
     with relative image and CSV paths.
+
+- `vega_sr_claim_validation_v1/`
+  - Frozen inputs used by the VEGA-SR claim-validation workflow.
 
 ## Not Included
 

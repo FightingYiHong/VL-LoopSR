@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import gzip
 import json
 import math
 import os
@@ -178,6 +179,128 @@ def load_best_sample(samples_dir: Path):
     return best
 
 
+def load_samples_in_generation_order(samples_dir: Path) -> list[dict]:
+    """Return generated equation candidates in their documented sample order."""
+    samples = []
+    for fallback_order, path in enumerate(
+        sorted(samples_dir.glob("samples_*.json")), start=1
+    ):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        function = data.get("function")
+        if not isinstance(function, str) or not function.strip():
+            continue
+        try:
+            sample_order = int(data.get("sample_order"))
+        except (TypeError, ValueError):
+            sample_order = fallback_order
+        samples.append(
+            {
+                "sample_order": sample_order,
+                "function": function,
+                "official_score": finite_float(data.get("score")),
+                "path": str(path),
+            }
+        )
+    return sorted(samples, key=lambda item: (item["sample_order"], item["path"]))
+
+
+def evaluate_validation_first_hit(
+    samples: list[dict],
+    train_df,
+    val_df,
+    test_df,
+    original_train_df,
+    original_val_df,
+    original_test_df,
+    norm_info,
+    *,
+    max_params: int,
+    timeout_sec: float,
+    trace_path: Path,
+    threshold: float = 0.999,
+) -> dict:
+    """Evaluate candidates in generation order using validation data only."""
+    trace_path.parent.mkdir(parents=True, exist_ok=True)
+    seen = set()
+    observed = 0
+    first_hit = None
+    trace = []
+
+    def _alarm_handler(_signum, _frame):
+        raise TimeoutError("candidate validation fit timed out")
+
+    for sample in samples:
+        observed += 1
+        function = sample["function"]
+        seen.add(function)
+        event = {
+            "candidate_index": observed,
+            "unique_candidate_index": len(seen),
+            "native_evaluations": sample["sample_order"],
+            "expression": extract_return_expression(function) or function,
+            "official_score": sample["official_score"],
+            "source_path": sample["path"],
+            "status": "invalid",
+            "val_r2": None,
+        }
+        previous_handler = signal.getsignal(signal.SIGALRM)
+        try:
+            signal.signal(signal.SIGALRM, _alarm_handler)
+            signal.setitimer(signal.ITIMER_REAL, max(1.0, float(timeout_sec)))
+            predictions = fit_predict(
+                function,
+                train_df,
+                val_df,
+                test_df,
+                original_train_df,
+                original_val_df,
+                original_test_df,
+                norm_info,
+                max_params=max_params,
+            )
+            val_r2 = base.safe_r2(predictions["y_val"], predictions["pred_val"])
+            event["val_r2"] = finite_float(val_r2)
+            event["status"] = "valid" if event["val_r2"] is not None else "invalid"
+        except Exception as exc:
+            event["error"] = repr(exc)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous_handler)
+        trace.append(event)
+        if event["val_r2"] is not None and event["val_r2"] > threshold:
+            first_hit = event
+            break
+
+    with gzip.open(trace_path, "wt", encoding="utf-8") as handle:
+        for event in trace:
+            handle.write(json.dumps(base.json_safe_record(event), ensure_ascii=False))
+            handle.write("\n")
+
+    hit = first_hit or {}
+    return {
+        "validation_search_success": bool(first_hit),
+        "evaluations_to_validation_success": hit.get("candidate_index"),
+        "unique_evaluations_to_validation_success": hit.get(
+            "unique_candidate_index"
+        ),
+        "native_evaluations_to_validation_success": hit.get("native_evaluations"),
+        "first_validation_success_expression": hit.get("expression"),
+        "first_validation_success_val_r2": hit.get("val_r2"),
+        "validation_search_observed_evaluations": observed,
+        "validation_search_unique_evaluations": len(seen),
+        "validation_search_censored": not bool(first_hit),
+        "validation_search_threshold": float(threshold),
+        "validation_search_trace": str(trace_path),
+        "validation_search_definition": (
+            "first generated official LLM-SR equation with validation R2 > 0.999; "
+            "test data are not used for first-hit selection"
+        ),
+    }
+
+
 def count_ast_nodes(source: str):
     try:
         tree = ast.parse(source)
@@ -321,7 +444,9 @@ def finalize_case_result(
 ):
     """Build a case JSON from official samples, even after a parent timeout."""
     case_name = base.row_case_name(benchmark, row)
-    _, log_dir, spec_dir, case_dir, spec_path, result_json = case_paths(result_root, idx, case_name)
+    slug, log_dir, spec_dir, case_dir, spec_path, result_json = case_paths(
+        result_root, idx, case_name
+    )
     spec_dir.mkdir(parents=True, exist_ok=True)
     case_dir.mkdir(parents=True, exist_ok=True)
 
@@ -362,6 +487,25 @@ def finalize_case_result(
             res["official_sample_order"] = best.get("sample_order")
             res["official_sample_path"] = best.get("path")
 
+    ordered_samples = load_samples_in_generation_order(log_dir / "samples")
+    search_metrics = evaluate_validation_first_hit(
+        ordered_samples,
+        train_df,
+        val_df,
+        test_df,
+        train_df_raw,
+        val_df_raw,
+        test_df_raw,
+        norm_info,
+        max_params=args.max_params,
+        timeout_sec=args.evaluate_timeout_sec,
+        trace_path=(
+            result_root
+            / "candidate_traces"
+            / f"{idx:04d}_{slug}.jsonl.gz"
+        ),
+    )
+    res.update(search_metrics)
     res.update(meta)
     res.update({
         "method": "official_llm_sr",

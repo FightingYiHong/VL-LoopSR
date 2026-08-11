@@ -6,7 +6,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 ROOT_DIR="${ROOT_DIR:-${PROJECT_ROOT}}"
 RESULTS_ROOT="${RESULTS_ROOT:-${PROJECT_ROOT}/runs/paper_experiments/05_noise_robustness/${RUN_ID}}"
 LOG_ROOT="${LOG_ROOT:-${PROJECT_ROOT}/logs/paper_experiments/05_noise_robustness/${RUN_ID}}"
-NOISE_DATASET_MANIFEST="${NOISE_DATASET_MANIFEST:-data/noise_robustness_smallrange_v1/manifest.csv}"
+NOISE_DATASET_MANIFEST="${NOISE_DATASET_MANIFEST:-data/noise_robustness_metric_v2/manifest.csv}"
 LAUNCH_VL_LOOPSR="${LAUNCH_VL_LOOPSR:-${LAUNCH_OURS_V11:-0}}"
 NOISE_VL_LOOPSR_CASE_BUDGET_SEC="${NOISE_VL_LOOPSR_CASE_BUDGET_SEC:-${NOISE_V11_CASE_BUDGET_SEC:-100}}"
 NOISE_VL_LOOPSR_PARENT_TIMEOUT_SEC="${NOISE_VL_LOOPSR_PARENT_TIMEOUT_SEC:-${NOISE_V11_PARENT_TIMEOUT_SEC:-130}}"
@@ -19,9 +19,9 @@ Noise robustness suite.
 
 This suite corresponds to Fig. 6 in the paper.
 
-Dataset: NoiseRobust-SmallRange v1.
+Dataset: NoiseRobust-Metric v2.
 Default manifest: ${NOISE_DATASET_MANIFEST}
-Cases: 20 formulas x noise levels 0/0.001/0.01 x 3 seeds = 180 tasks.
+Cases: 20 formulas x noise levels 0/0.001/0.01/0.1 x 5 seeds = 400 tasks.
 
 Methods see noisy train/validation targets and are scored on clean held-out test
 targets.
@@ -37,12 +37,12 @@ echo "[05-noise] logs=${LOG_ROOT}"
 echo "[05-noise] manifest=${NOISE_DATASET_MANIFEST}"
 
 if [[ ! -f "${NOISE_DATASET_MANIFEST}" ]]; then
-  echo "[05-noise] manifest missing; generating NoiseRobust-SmallRange v1"
+  echo "[05-noise] manifest missing; generating NoiseRobust-Metric v2"
   python3 scripts/generate_noise_robustness_dataset.py \
     --out-dir "$(dirname "${NOISE_DATASET_MANIFEST}")" \
     --formula-count 20 \
-    --noise-levels "0,0.001,0.01" \
-    --repeat-seeds 3 \
+    --noise-levels "0,0.001,0.01,0.1" \
+    --repeat-seeds 5 \
     --n-train 512 \
     --n-val 256 \
     --n-test 1024

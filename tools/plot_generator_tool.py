@@ -8,6 +8,8 @@ from typing import List, Optional
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from tools.plot_style import NATURE_CMAP, NATURE_COLORS, save_nature_figure, set_nature_style
+
 
 @dataclass
 class PlotResult:
@@ -36,7 +38,7 @@ class PlotGeneratorTool:
     def _save_current_figure(self, save_path: str):
         self.ensure_dir(os.path.dirname(save_path))
         plt.tight_layout()
-        plt.savefig(save_path, dpi=160)
+        save_nature_figure(plt, save_path, "visual_observation", dpi=160)
         plt.close()
 
     def plot_1d_scatter(
@@ -53,8 +55,9 @@ class PlotGeneratorTool:
         description = f"scatter plot of {y_col} versus {x_col}"
 
         try:
+            set_nature_style(plt)
             plt.figure(figsize=(6, 4))
-            plt.scatter(df[x_col], df[y_col], s=18)
+            plt.scatter(df[x_col], df[y_col], s=18, color=NATURE_COLORS["blue"], alpha=0.72, edgecolors="none")
             plt.xlabel(x_col)
             plt.ylabel(y_col)
             plt.title(title or f"{y_col} vs {x_col}")
@@ -89,8 +92,9 @@ class PlotGeneratorTool:
         description = f"{x1_col}-{x2_col} plane colored by {y_col}"
 
         try:
+            set_nature_style(plt)
             plt.figure(figsize=(6, 5))
-            sc = plt.scatter(df[x1_col], df[x2_col], c=df[y_col], s=18)
+            sc = plt.scatter(df[x1_col], df[x2_col], c=df[y_col], s=18, cmap=NATURE_CMAP, alpha=0.82, edgecolors="none")
             plt.xlabel(x1_col)
             plt.ylabel(x2_col)
             plt.title(title or f"{x1_col}-{x2_col} colored by {y_col}")

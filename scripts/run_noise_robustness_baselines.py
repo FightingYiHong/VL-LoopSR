@@ -32,6 +32,11 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 from run_cpu_baseline_benchmarks import METHOD_FITTERS, dataframe_to_xy  # noqa: E402
 from run_physo_baseline import fit_physo  # noqa: E402
+from benchmark_metrics import (  # noqa: E402
+    NUMERICAL_FIT_R2_THRESHOLD,
+    regression_metrics,
+    strict_formula_recovery,
+)
 from run_v11_noise_robustness import (  # noqa: E402
     EXACT_CLEAN_MSE_THRESHOLD,
     PASS_MSE_THRESHOLD,
@@ -519,7 +524,10 @@ def clean_eval_metrics(case, result: dict, clean: dict) -> dict:
     fdr = false_count / max(1, len(active_set))
     form_score = family_score(expr, case.structure_type)
 
-    clean_train_mse = clean_val_mse = clean_test_mse = None
+    clean_metrics = {
+        split: {name: None for name in ("mse", "rmse", "nmse", "mae", "r2")}
+        for split in ("train", "val", "test")
+    }
     residual_score = None
     residual_structured = None
     if expr:
@@ -527,9 +535,10 @@ def clean_eval_metrics(case, result: dict, clean: dict) -> dict:
             train_pred = evaluate_expression(expr, clean["train"], case.feature_names)
             val_pred = evaluate_expression(expr, clean["val"], case.feature_names)
             test_pred = evaluate_expression(expr, clean["test"], case.feature_names)
-            clean_train_mse = finite_mse(clean["train"]["y"].to_numpy(), train_pred)
-            clean_val_mse = finite_mse(clean["val"]["y"].to_numpy(), val_pred)
-            clean_test_mse = finite_mse(clean["test"]["y"].to_numpy(), test_pred)
+            clean_metrics["train"] = regression_metrics(clean["train"]["y"].to_numpy(), train_pred)
+            clean_metrics["val"] = regression_metrics(clean["val"]["y"].to_numpy(), val_pred)
+            clean_metrics["test"] = regression_metrics(clean["test"]["y"].to_numpy(), test_pred)
+            clean_test_mse = clean_metrics["test"]["mse"]
             residual = clean["test"]["y"].to_numpy(dtype=float) - np.asarray(test_pred, dtype=float)
             residual_score = residual_structure_score(residual, clean["test"], case.feature_names)
             residual_structured = bool(
@@ -540,6 +549,9 @@ def clean_eval_metrics(case, result: dict, clean: dict) -> dict:
         except Exception as exc:
             result["clean_eval_error"] = repr(exc)
 
+    clean_train_mse = clean_metrics["train"]["mse"]
+    clean_val_mse = clean_metrics["val"]["mse"]
+    clean_test_mse = clean_metrics["test"]["mse"]
     clean_mse_for_pass = float(clean_test_mse) if clean_test_mse is not None else float("inf")
     skeleton = bool(
         clean_mse_for_pass <= SKELETON_CLEAN_MSE_THRESHOLD
@@ -547,7 +559,9 @@ def clean_eval_metrics(case, result: dict, clean: dict) -> dict:
         and fdr <= 0.25
         and form_score >= 0.35
     )
-    exact = bool(clean_mse_for_pass <= EXACT_CLEAN_MSE_THRESHOLD and active_set == true_set and form_score >= 0.75)
+    exact_proxy = bool(clean_mse_for_pass <= EXACT_CLEAN_MSE_THRESHOLD and active_set == true_set and form_score >= 0.75)
+    strict_recovery = strict_formula_recovery(expr, case.true_expression, case.feature_names)
+    clean_test_r2 = clean_metrics["test"]["r2"]
     complexity_bloat = None
     if true_complexity and found_complexity is not None:
         complexity_bloat = float(found_complexity) / max(1.0, float(true_complexity))
@@ -561,14 +575,28 @@ def clean_eval_metrics(case, result: dict, clean: dict) -> dict:
         "wrong_variable_count": false_count,
         "formula_form_score": form_score,
         "skeleton_recovery": skeleton,
-        "exact_recovery": exact,
-        "exact_recovery_proxy": exact,
+        "exact_recovery": bool(strict_recovery),
+        "strict_formula_recovery": bool(strict_recovery),
+        "strict_formula_recovery_evaluable": strict_recovery is not None,
+        "exact_recovery_proxy": exact_proxy,
+        "numerical_complete_fit": bool(
+            clean_test_r2 is not None and clean_test_r2 > NUMERICAL_FIT_R2_THRESHOLD
+        ),
         "passed": bool(clean_mse_for_pass <= PASS_MSE_THRESHOLD),
         "pass_at_100": bool(clean_mse_for_pass <= 100.0),
         "pass_at_300": bool(clean_mse_for_pass <= 300.0),
         "clean_train_mse": clean_train_mse,
         "clean_val_mse": clean_val_mse,
         "clean_test_mse": clean_test_mse,
+        "clean_train_rmse": clean_metrics["train"]["rmse"],
+        "clean_val_rmse": clean_metrics["val"]["rmse"],
+        "clean_test_rmse": clean_metrics["test"]["rmse"],
+        "clean_train_nmse": clean_metrics["train"]["nmse"],
+        "clean_val_nmse": clean_metrics["val"]["nmse"],
+        "clean_test_nmse": clean_metrics["test"]["nmse"],
+        "clean_train_r2": clean_metrics["train"]["r2"],
+        "clean_val_r2": clean_metrics["val"]["r2"],
+        "clean_test_r2": clean_test_r2,
         "mse_at_pass": clean_test_mse if clean_mse_for_pass <= PASS_MSE_THRESHOLD else None,
         "residual_structure_score": residual_score,
         "residual_structured": residual_structured,
@@ -703,10 +731,15 @@ def summarize(rows: list[dict], out_dir: Path):
         "pass_at_100",
         "pass_at_300",
         "exact_recovery",
+        "strict_formula_recovery",
+        "numerical_complete_fit",
         "skeleton_recovery",
         "noise_level",
         "best_val_mse",
         "clean_test_mse",
+        "clean_test_rmse",
+        "clean_test_nmse",
+        "clean_test_r2",
         "mse_at_pass",
         "runtime_sec",
         "expr_complexity",
@@ -724,8 +757,11 @@ def summarize(rows: list[dict], out_dir: Path):
             pass_at_100=("pass_at_100", "mean"),
             pass_at_300=("pass_at_300", "mean"),
             exact_recovery=("exact_recovery", "mean"),
+            numerical_complete_fit=("numerical_complete_fit", "mean"),
             skeleton_recovery=("skeleton_recovery", "mean"),
             median_clean_test_mse=("clean_test_mse", "median"),
+            median_clean_test_rmse=("clean_test_rmse", "median"),
+            median_clean_test_nmse=("clean_test_nmse", "median"),
             median_noisy_val_mse=("best_val_mse", "median"),
             median_complexity=("expr_complexity", "median"),
             median_complexity_bloat=("complexity_bloat", "median"),
@@ -743,8 +779,11 @@ def summarize(rows: list[dict], out_dir: Path):
             pass_at_100=("pass_at_100", "mean"),
             pass_at_300=("pass_at_300", "mean"),
             exact_recovery=("exact_recovery", "mean"),
+            numerical_complete_fit=("numerical_complete_fit", "mean"),
             skeleton_recovery=("skeleton_recovery", "mean"),
             median_clean_test_mse=("clean_test_mse", "median"),
+            median_clean_test_rmse=("clean_test_rmse", "median"),
+            median_clean_test_nmse=("clean_test_nmse", "median"),
             median_complexity=("expr_complexity", "median"),
             median_complexity_bloat=("complexity_bloat", "median"),
             residual_structured_rate=("residual_structured", "mean"),
@@ -759,34 +798,40 @@ def summarize(rows: list[dict], out_dir: Path):
 def plot_figures(df: pd.DataFrame, out_dir: Path):
     if plt is None:
         return
+    from tools.plot_style import COLOR_NEUTRAL_DARK, palette_for, save_nature_figure, set_nature_style
+
     fig_dir = out_dir / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
-    plt.style.use("ggplot")
+    set_nature_style(plt)
+    method_values = sorted(df["method"].dropna().unique())
+    method_palette = palette_for(method_values)
 
     plt.figure(figsize=(8.4, 4.7))
     for method, sub in df.groupby("method", dropna=False):
         grouped = sub.groupby("noise_level")["skeleton_recovery"].mean().reset_index()
-        plt.plot(grouped["noise_level"], grouped["skeleton_recovery"], marker="o", label=str(method))
+        plt.plot(grouped["noise_level"], grouped["skeleton_recovery"], marker="o", color=method_palette.get(method), label=str(method))
     plt.xscale("symlog", linthresh=0.001)
     plt.ylim(-0.05, 1.05)
     plt.xlabel("Relative target noise")
     plt.ylabel("Skeleton Recovery")
     plt.legend(title="method")
     plt.tight_layout()
-    plt.savefig(fig_dir / "fig5a_baseline_noise_structural_stability.png", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig5a_baseline_noise_structural_stability.png", "noise_robustness_baselines", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig5a_baseline_noise_structural_stability.pdf", "noise_robustness_baselines")
     plt.close()
 
     plt.figure(figsize=(8.4, 4.7))
     for method, sub in df.groupby("method", dropna=False):
         grouped = sub.groupby("noise_level")["complexity_bloat"].median().reset_index()
-        plt.plot(grouped["noise_level"], grouped["complexity_bloat"], marker="o", label=str(method))
+        plt.plot(grouped["noise_level"], grouped["complexity_bloat"], marker="o", color=method_palette.get(method), label=str(method))
     plt.xscale("symlog", linthresh=0.001)
-    plt.axhline(1.0, color="#333333", linewidth=1.0, linestyle="--")
+    plt.axhline(1.0, color=COLOR_NEUTRAL_DARK, linewidth=1.0, linestyle="--")
     plt.xlabel("Relative target noise")
     plt.ylabel("Expression complexity / true complexity")
     plt.legend(title="method")
     plt.tight_layout()
-    plt.savefig(fig_dir / "fig5c_baseline_complexity_inflation.png", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig5c_baseline_complexity_inflation.png", "noise_robustness_baselines", dpi=180)
+    save_nature_figure(plt, fig_dir / "fig5c_baseline_complexity_inflation.pdf", "noise_robustness_baselines")
     plt.close()
 
 
@@ -998,7 +1043,7 @@ def parse_args():
     parser.add_argument("--timeout-grace-sec", type=float, default=30.0)
     parser.add_argument("--parent-timeout-sec", type=float, default=0.0)
     parser.add_argument("--max-cases", type=int, default=0)
-    parser.add_argument("--noise-levels", default="0,0.001,0.01")
+    parser.add_argument("--noise-levels", default="0,0.001,0.01,0.1")
     parser.add_argument("--dataset-manifest", default="", help="Optional fixed NoiseRobust-SR manifest.csv to read instead of generating splits.")
     parser.add_argument("--benchmarks", default=None)
     parser.add_argument("--n-train", type=int, default=512)

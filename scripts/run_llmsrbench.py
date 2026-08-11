@@ -26,6 +26,7 @@ import os
 import re
 import sys
 import time
+import ast
 import hashlib
 import random
 import warnings
@@ -36,6 +37,7 @@ from tempfile import TemporaryDirectory
 import h5py
 import numpy as np
 import pandas as pd
+import yaml
 
 warnings.filterwarnings("ignore")
 
@@ -60,6 +62,7 @@ V10_PATH = Path(os.environ.get(
 # =========================================================
 LLMSRBENCH_ROOT = os.environ.get("LLMSRBENCH_ROOT", str(PROJECT_ROOT / "data" / "llmsrbench"))
 LLMSRBENCH_HDF5 = os.environ.get("LLMSRBENCH_HDF5", os.path.join(LLMSRBENCH_ROOT, "lsr_bench_data.hdf5"))
+LLMSRBENCH_CASES_ROOT = os.environ.get("LLMSRBENCH_CASES_ROOT", "")
 
 PARQUET_FILES = {
     "lsr_transform": os.path.join(
@@ -215,6 +218,68 @@ def map_split_to_hdf5_group(split_name: str) -> str:
     return mapping[split_name]
 
 
+DIRECTORY_FAMILY_TO_SPLIT = {
+    "bio_pop_growth": "lsr_synth_bio_pop_growth",
+    "chem_react": "lsr_synth_chem_react",
+    "matsci": "lsr_synth_matsci",
+    "phys_osc": "lsr_synth_phys_osc",
+    "lsrtransform": "lsr_transform",
+}
+
+
+def formula_expression_from_file(path: Path) -> str:
+    if not path.exists():
+        return ""
+    source = path.read_text(encoding="utf-8")
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return ""
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for statement in ast.walk(node):
+            if isinstance(statement, ast.Return) and statement.value is not None:
+                if hasattr(ast, "unparse"):
+                    return ast.unparse(statement.value)
+                import astor
+
+                return astor.to_source(statement.value).strip()
+    return ""
+
+
+def collect_llmsrbench_directory_tasks(root: Path) -> pd.DataFrame:
+    rows = []
+    for metadata_path in sorted(root.glob("*/*/metadata.yaml")):
+        case_dir = metadata_path.parent
+        family_name = case_dir.parent.name
+        split_name = DIRECTORY_FAMILY_TO_SPLIT.get(family_name)
+        if split_name is None:
+            continue
+        metadata = yaml.safe_load(metadata_path.read_text(encoding="utf-8")) or {}
+        dataset_meta = dict(metadata.get("dataset") or {})
+        features = list(dataset_meta.get("features") or [])
+        target = dict(dataset_meta.get("target") or {})
+        feature_names = [str(item.get("name")) for item in features if item.get("name")]
+        target_name = str(target.get("name") or "y")
+        case_name = case_dir.name
+        rows.append({
+            "split_name": split_name,
+            "hdf5_group_prefix": map_split_to_hdf5_group(split_name),
+            "case_name": case_name,
+            "symbols": feature_names + [target_name],
+            "symbol_descs": [
+                str(item.get("description") or "")
+                for item in features
+            ] + [str(target.get("description") or "")],
+            "symbol_properties": ["I"] * len(feature_names) + ["O"],
+            "true_expression": formula_expression_from_file(case_dir / "formula.py"),
+            "n_features_meta": len(feature_names),
+            "case_dir": str(case_dir.resolve()),
+        })
+    return pd.DataFrame(rows)
+
+
 def task_passes_filters(split_name, case_name, n_features_meta):
     if n_features_meta < MIN_FEATURES:
         return False
@@ -232,6 +297,30 @@ def task_passes_filters(split_name, case_name, n_features_meta):
 
 
 def collect_llmsrbench_tasks():
+    if LLMSRBENCH_CASES_ROOT:
+        directory_root = Path(LLMSRBENCH_CASES_ROOT).expanduser().resolve()
+        if not directory_root.exists():
+            raise FileNotFoundError(f"LLMSRBENCH_CASES_ROOT not found: {directory_root}")
+        df = collect_llmsrbench_directory_tasks(directory_root)
+        if len(df) == 0:
+            raise FileNotFoundError(f"No LLMSRBench directory tasks found under: {directory_root}")
+        keep = df.apply(
+            lambda r: task_passes_filters(
+                r["split_name"], r["case_name"], r["n_features_meta"]
+            ),
+            axis=1,
+        )
+        df = df[keep].copy()
+        df = df.sort_values(by=["split_name", "n_features_meta", "case_name"]).reset_index(drop=True)
+        if RANDOM_SAMPLE_K is not None and RANDOM_SAMPLE_K > 0 and len(df) > RANDOM_SAMPLE_K:
+            rng = random.Random(RANDOM_SEED)
+            idxs = list(range(len(df)))
+            rng.shuffle(idxs)
+            df = df.iloc[sorted(idxs[:RANDOM_SAMPLE_K])].reset_index(drop=True)
+        if MAX_FILES is not None:
+            df = df.head(MAX_FILES).copy()
+        return df.reset_index(drop=True)
+
     rows = []
 
     for split_name, parquet_path in PARQUET_FILES.items():
@@ -429,6 +518,58 @@ def load_llmsrbench_case_from_hdf5(row):
     return train_df, val_df, test_df, extra_info
 
 
+def load_llmsrbench_case_from_directory(row):
+    case_dir = Path(str(row["case_dir"]))
+    symbols = list(row.get("symbols", []))
+    target_name = symbols[-1] if symbols else "y"
+    feature_names = symbols[:-1]
+
+    def load_split(filename: str) -> pd.DataFrame:
+        path = case_dir / filename
+        if not path.exists():
+            raise FileNotFoundError(f"missing LLMSRBench split: {path}")
+        frame = pd.read_csv(path)
+        required = set(feature_names + [target_name])
+        missing = required - set(frame.columns)
+        if missing:
+            raise KeyError(f"{path} missing columns: {sorted(missing)}")
+        out = frame[feature_names + [target_name]].copy()
+        out = out.rename(columns={target_name: "y"})
+        return out
+
+    train_df = load_split("train.csv")
+    val_df = load_split("valid.csv")
+    test_df = load_split("id_test.csv")
+    extra_info = {
+        "split_name": row.get("split_name"),
+        "case_name": row.get("case_name"),
+        "symbols": symbols,
+        "symbol_descs": list(row.get("symbol_descs", [])),
+        "symbol_properties": list(row.get("symbol_properties", [])),
+        "true_expression": row.get("true_expression"),
+        "train_shape": tuple(train_df.shape),
+        "val_shape": tuple(val_df.shape),
+        "test_shape": tuple(test_df.shape),
+        "val_source": "official_valid",
+        "test_source": "official_id_test",
+        "split_fallback_note": None,
+        "n_features_inferred": len(feature_names),
+        "hdf5_group_prefix": row.get("hdf5_group_prefix"),
+        "layout_source": "directory_csv",
+        "input_indices": list(range(len(feature_names))),
+        "output_idx": len(feature_names),
+        "feature_names_original": feature_names,
+        "target_name_original": target_name,
+    }
+    return train_df, val_df, test_df, extra_info
+
+
+def load_llmsrbench_case(row):
+    if str(row.get("case_dir", "") or "").strip():
+        return load_llmsrbench_case_from_directory(row)
+    return load_llmsrbench_case_from_hdf5(row)
+
+
 def make_row_meta(row, dataset, extra_info):
     return {
         "task_type": "llmsrbench",
@@ -470,7 +611,7 @@ def run_one_llmsrbench_task_v10(v10, row, tmpdir: Path):
         "original_symbols": " | ".join([str(x) for x in row.get("symbols", [])]),
     }
     try:
-        train_df, val_df, test_df, extra_info = load_llmsrbench_case_from_hdf5(row)
+        train_df, val_df, test_df, extra_info = load_llmsrbench_case(row)
         dataset = v10.build_dataset_from_explicit_splits(
             train_df=train_df,
             val_df=val_df,
@@ -601,7 +742,7 @@ def main():
     overall_start = time.time()
     os.makedirs(RESULTS_ROOT, exist_ok=True)
 
-    if not os.path.exists(LLMSRBENCH_HDF5):
+    if not LLMSRBENCH_CASES_ROOT and not os.path.exists(LLMSRBENCH_HDF5):
         raise FileNotFoundError(f"hdf5 not found: {LLMSRBENCH_HDF5}")
 
     df_tasks = collect_llmsrbench_tasks()

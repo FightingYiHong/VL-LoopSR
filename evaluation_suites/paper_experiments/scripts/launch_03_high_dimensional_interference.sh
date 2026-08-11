@@ -9,6 +9,7 @@ LOG_ROOT="${LOG_ROOT:-${PROJECT_ROOT}/logs/paper_experiments/03_high_dimensional
 LAUNCH_VL_LOOPSR="${LAUNCH_VL_LOOPSR:-${LAUNCH_OURS_V11:-0}}"
 HIGHDIM_VL_LOOPSR_CASE_BUDGET_SEC="${HIGHDIM_VL_LOOPSR_CASE_BUDGET_SEC:-${HIGHDIM_V11_CASE_BUDGET_SEC:-900}}"
 HIGHDIM_VL_LOOPSR_PARENT_TIMEOUT_SEC="${HIGHDIM_VL_LOOPSR_PARENT_TIMEOUT_SEC:-${HIGHDIM_V11_PARENT_TIMEOUT_SEC:-930}}"
+HIGHDIM_BASELINE_CHILD_PYTHON="${HIGHDIM_BASELINE_CHILD_PYTHON:-${HOME}/anaconda3/envs/srbench-gplearn/bin/python}"
 
 mkdir -p "${RESULTS_ROOT}" "${LOG_ROOT}"
 cd "${ROOT_DIR}"
@@ -22,9 +23,9 @@ Cases: 24 formulas x d=200/500/1000 x three distractor regimes = 216 tasks.
 Each formula uses k=2/3/4/5 true variables; remaining variables are independent
 irrelevant variables, correlated proxies, or nonlinear decoys.
 
-Metrics: true-variable recall, true-variable precision, false-variable
-discovery rate, proxy/nonlinear/irrelevant misuse, Exact/Skeleton Recovery,
-MSE, complexity, runtime, timeout rate.
+Metrics: exact support recovery, true-variable recall/precision, false
+discovery rate, irrelevant-variable false-positive rate, proxy/nonlinear
+misuse, strict/SRBench recovery, MSE/NRMSE, complexity, runtime, timeout rate.
 
 Launch controls:
   LAUNCH_VL_LOOPSR=1
@@ -54,6 +55,7 @@ if [[ "${LAUNCH_BASELINES:-0}" == "1" ]]; then
   echo "[03-highdim] launching baselines=${HIGHDIM_BASELINE_METHODS:-pyoperon,gplearn}"
   python3 scripts/run_highdim_interference_baselines.py \
     --methods "${HIGHDIM_BASELINE_METHODS:-pyoperon,gplearn}" \
+    --child-python "${HIGHDIM_BASELINE_CHILD_PYTHON}" \
     --out-dir "${RESULTS_ROOT}/baselines" \
     --case-timeout-sec "${HIGHDIM_BASELINE_CASE_TIMEOUT_SEC:-900}" \
     --parent-timeout-sec "${HIGHDIM_BASELINE_PARENT_TIMEOUT_SEC:-930}" \

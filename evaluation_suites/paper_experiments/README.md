@@ -11,15 +11,19 @@ and baseline configs do not get mixed with older exploratory scripts.
    - Question: compact formula recovery across heterogeneous benchmarks.
    - Benchmarks: LLMSRBench (240), SLDBench (77), SRBench/Feynman (417), SRSD
      (238), for 972 tasks.
-   - Primary readouts: PASS@100, MSE(PASS), perfect-fit rate, expression
-     complexity, runtime.
+   - Primary readouts: numerical complete fit, strict/SRBench recovery,
+     MSE/RMSE/NMSE/NRMSE, expression-tree nodes and runtime. PASS@100 remains
+     a legacy compatibility field.
+   - Search-efficiency readout: first actual candidate evaluation reaching
+     validation R2 > 0.999; non-hits are retained as right-censored cases.
 
 2. `02_extrapolation`
    - Paper figure: Fig. 3.
    - Question: whether selected equations remain accurate outside the observed
      input range.
    - Benchmarks: Constructed62 and SurfaceBench40.
-   - Primary readouts: ID/OOD log-MSE, ID-to-OOD shift, OOD/ID degradation.
+   - Primary readouts: raw R2/NMSE, ID/OOD shift, negative-R2 and non-finite
+     rates, plus range-expansion diagnostics.
 
 3. `03_high_dimensional_distractors`
    - Paper figure: Fig. 4.
@@ -27,7 +31,8 @@ and baseline configs do not get mixed with older exploratory scripts.
      correlated proxies, and nonlinear decoys.
    - Construction: 24 formulas x dimensions 200/500/1000 x three distractor
      regimes = 216 tasks.
-   - Primary readouts: mean/median test MSE, true-variable recall, FDR, runtime.
+   - Primary readouts: exact support recovery, recall/precision, FDR,
+     irrelevant-variable FPR, test error and runtime.
 
 4. `04_proposer_sft`
    - Paper figure: Fig. 5.
@@ -41,10 +46,10 @@ and baseline configs do not get mixed with older exploratory scripts.
    - Paper figure: Fig. 6.
    - Question: whether symbolic skeletons remain compact and stable under noisy
      fitting/validation targets.
-   - Dataset: NoiseRobust-SmallRange v1, 20 formulas x noise levels
-     0/0.001/0.01 x three seeds = 180 tasks.
-   - Primary readouts: skeleton recovery, clean-test MSE, complexity, runtime,
-     timeout behavior.
+   - Dataset: NoiseRobust-Metric v2, 20 formulas x noise levels
+     0/0.001/0.01/0.1 x five seeds = 400 tasks.
+   - Primary readouts: numerical complete fit, strict/SRBench and skeleton
+     recovery, clean-test MSE/RMSE/NMSE/NRMSE, complexity and runtime.
 
 6. `06_component_ablation`
    - Paper figure: Fig. 7.
@@ -71,8 +76,8 @@ and baseline configs do not get mixed with older exploratory scripts.
   `scripts/run_v11_ablation_experiments.py`.
 ## Data Map
 
-- Noise default manifest: `data/noise_robustness_smallrange_v1/manifest.csv`.
-- Noise split files referenced by the manifest: `data/noise_robustness_v1_20/splits`.
+- Noise default manifest: `data/noise_robustness_metric_v2/manifest.csv`.
+- Noise split files: `data/noise_robustness_metric_v2/splits`.
 - SurfaceBench public cache: `data/surfacebench_public`.
 - Balanced component ablation data is generated on demand at
   `data/v11_balanced_component_ablation_96`.

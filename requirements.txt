@@ -7,3 +7,9 @@ pandas
 scipy
 sympy
 scikit-learn
+Pillow
+datasets
+h5py
+matplotlib
+seaborn
+PyYAML
